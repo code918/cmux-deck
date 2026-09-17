@@ -78,6 +78,12 @@ function meaningful(title, w) {
   return t;
 }
 
+function isFocusedSession(w, a) {
+  if (!w.selected) return false;
+  const tab = (w.tabs ?? []).find((x) => x.id === a.panelId || x.surfaceId === a.surfaceId);
+  return Boolean(tab?.focused);
+}
+
 // 세션이 하는 일: 탭 제목 → 세션 제목 → (세션이 하나뿐이면) 마지막 프롬프트 → 이름
 function sessionLabel(w, a) {
   const tab = (w.tabs ?? []).find((x) => x.id === a.panelId || x.surfaceId === a.surfaceId);
@@ -120,6 +126,8 @@ function entries() {
         project: w.title,
         color: w.color || "#7f7f7f",
         surfaceId: a.surfaceId,
+        // 지금 보고 있는 탭인지: 선택된 프로젝트 + 그 프로젝트에서 포커스된 탭
+        focused: isFocusedSession(w, a),
         workspaceId: w.id,
         since: a.sinceEpoch ?? a.lastActivityAt ?? t,
         at: a.lastActivityAt ?? 0,
@@ -295,9 +303,9 @@ function row(e) {
     .paddingHorizontal(10)
     .paddingVertical(6)
     .cornerRadius(8)
-    // 멈춰서 기다리는 줄만 은은하게 칠해서 눈에 먼저 들어오게
-    .background(() => (e().waiting ? "#FF8A5B1F" : null))
-    .hoverBackground(() => (e().waiting ? "#FF8A5B33" : "#7f7f7f24"))
+    // 지금 보고 있는 세션은 프로젝트 목록의 선택 표시와 같은 배경
+    .background(() => (e().focused ? "#7f7f7f3d" : null))
+    .hoverBackground(() => (e().focused ? "#7f7f7f3d" : "#7f7f7f24"))
     .frame({ maxWidth: "infinity" })
     .onTap(() => jump(e()))
     .contextMenu([
