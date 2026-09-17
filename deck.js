@@ -29,60 +29,89 @@ const SLOTS = 5;
 
 const now = () => data.clock()?.epoch ?? 0;
 
-// ── 나중에 ──
-// 사이드바에는 저장 공간이 없어서, 미룬 세션 id를 프로젝트 "설명" 칸 끝에 표시로 적어둔다.
-// 설명 칸은 cmux가 재시작해도 기억하므로 나중에 목록이 유지된다.
-//   예) "내가 쓴 설명\n⟦deck:later claude-abc,claude-def⟧"
-// 사용자가 직접 쓴 설명은 건드리지 않고 표시 부분만 붙였다 뗀다. 미룬 게 없으면 표시도 지운다.
-const MARK_RE = /\n?⟦deck:later ([^⟧]*)⟧\s*$/;
+// ── 나중에 / 본 것 ──
+// 사이드바에는 저장 공간이 없어서, 세션 표시를 프로젝트 "설명" 칸 끝에 적어둔다.
+// 설명 칸은 cmux가 재시작해도 기억하므로 목록이 유지된다.
+//   예) "내가 쓴 설명\n⟦deck later=claude-abc seen=claude-def⟧"
+// 사용자가 직접 쓴 설명은 건드리지 않고 표시 부분만 붙였다 뗀다. 표시할 게 없으면 표시도 지운다.
+//
+//   later : 나중에 다시 보겠다고 미룬 세션. 열어봐도 그대로 나중에 칸에 남는다
+//   seen  : 확인 필요였는데 한 번 열어봤다가 떠난 세션. 목록에서 내린다
+// 둘 다 그 세션이 다시 작업을 시작하거나 끝나면 풀린다. 다음에 멈추면 다시 확인 필요로 올라온다.
+const MARK_RE = /\n?⟦deck(?::later ([^⟧]*)| ([^⟧]*))⟧\s*$/;
 const LOADED_AT = Math.floor(Date.now() / 1000);
 
 function parseDesc(desc) {
   const text = desc || "";
   const m = text.match(MARK_RE);
-  return { user: text.replace(MARK_RE, ""), ids: m ? m[1].split(",").filter(Boolean) : [] };
+  const marks = { user: text.replace(MARK_RE, ""), later: [], seen: [] };
+  if (!m) return marks;
+  if (m[1] !== undefined) {
+    marks.later = m[1].split(",").filter(Boolean); // 예전 형식 호환
+    return marks;
+  }
+  for (const part of m[2].split(" ")) {
+    const [k, v] = part.split("=");
+    if ((k === "later" || k === "seen") && v) marks[k] = v.split(",").filter(Boolean);
+  }
+  return marks;
 }
 
 // 설명 칸 변경은 1초쯤 뒤에 데이터로 돌아온다. 그 사이엔 방금 쓴 값을 기준으로 보여준다
-const pendingLater = new Map(); // workspaceId -> ids
-const [laterTick, setLaterTick] = signal(0);
+const pendingMarks = new Map(); // workspaceId -> { later, seen }
+const [markTick, setMarkTick] = signal(0);
 const [laterOpen, setLaterOpen] = signal(false);
 
 function sameIds(a, b) {
   return a.length === b.length && a.every((x) => b.includes(x));
 }
+function sameMarks(a, b) {
+  return sameIds(a.later, b.later) && sameIds(a.seen, b.seen);
+}
 
-function laterIds(w) {
-  laterTick();
-  const saved = parseDesc(w.description).ids;
-  if (pendingLater.has(w.id)) {
-    const want = pendingLater.get(w.id);
-    if (sameIds(want, saved)) pendingLater.delete(w.id); // cmux가 따라왔으면 해제
-    else return want;
+function marksOf(w) {
+  markTick();
+  const saved = parseDesc(w.description);
+  if (pendingMarks.has(w.id)) {
+    const want = pendingMarks.get(w.id);
+    if (sameMarks(want, saved)) pendingMarks.delete(w.id); // cmux가 따라왔으면 해제
+    else return { user: saved.user, later: want.later, seen: want.seen };
   }
   return saved;
 }
 
-function writeLater(w, ids) {
-  if (sameIds(ids, laterIds(w))) return;
-  pendingLater.set(w.id, ids);
-  setLaterTick(laterTick() + 1);
-  const user = parseDesc(w.description).user;
-  const text = ids.length ? (user ? user + "\n" : "") + "⟦deck:later " + ids.join(",") + "⟧" : user;
+function writeMarks(w, later, seen) {
+  const cur = marksOf(w);
+  if (sameMarks({ later, seen }, cur)) return;
+  pendingMarks.set(w.id, { later, seen });
+  setMarkTick(markTick() + 1);
+  const parts = [];
+  if (later.length) parts.push("later=" + later.join(","));
+  if (seen.length) parts.push("seen=" + seen.join(","));
+  const mark = parts.length ? "⟦deck " + parts.join(" ") + "⟧" : "";
+  const text = mark ? (cur.user ? cur.user + "\n" : "") + mark : cur.user;
   if (text) cmux("workspace.action", { workspace_id: w.id, action: "set_description", description: text });
   else cmux("workspace.action", { workspace_id: w.id, action: "clear_description" });
 }
 
+// 나중에: 다시 보겠다는 뜻이므로 본 것 표시는 지운다
 function defer(r) {
   const w = wsById(r.workspaceId);
   if (!w) return;
-  const ids = laterIds(w);
-  if (!ids.includes(r.agentId)) writeLater(w, ids.concat([r.agentId]));
+  const m = marksOf(w);
+  writeMarks(w, m.later.includes(r.agentId) ? m.later : m.later.concat([r.agentId]), m.seen.filter((id) => id !== r.agentId));
 }
+// 다시: 확인 필요로 되돌린다
 function undefer(r) {
   const w = wsById(r.workspaceId);
-  if (w) writeLater(w, laterIds(w).filter((id) => id !== r.agentId));
+  if (!w) return;
+  const m = marksOf(w);
+  writeMarks(w, m.later.filter((id) => id !== r.agentId), m.seen.filter((id) => id !== r.agentId));
 }
+
+// 지금 보고 있는 확인 필요 세션. 여기서 다른 데로 넘어가는 순간 "본 것"으로 표시한다
+// (여는 순간 내리면 보고 있는 줄이 눈앞에서 사라져서, 떠날 때 내린다)
+let lastFocus = null; // { workspaceId, agentId }
 
 // ── 프로젝트 검색 ──
 const [query, setQuery] = signal("");
@@ -141,23 +170,26 @@ function sessionLabel(w, a) {
 function entries() {
   const t = now();
   const groups = { check: [], work: [], later: [] };
+  let focus = null;
 
   for (const w of data.workspaces() ?? []) {
     const li = latestIdle(w);
-    const later = laterIds(w);
-    const keep = [];
+    const marks = marksOf(w);
+    const keepLater = [];
+    const keepSeen = [];
     for (const a of w.agents ?? []) {
       let b = bucket(w, a, t, li);
-      if (later.includes(a.id)) {
-        // 세션이 다시 작업을 시작했거나 끝났으면 나중에서 뺀다.
-        // (활동 시각은 cmux 재시작 때 한꺼번에 새로 찍혀서 기준으로 쓰지 않는다)
-        if (a.status === "working" || a.status === "ended") {
-          // 빼기
-        } else {
-          keep.push(a.id);
-          b = "later";
-        }
+      // 다시 작업을 시작했거나 끝난 세션은 표시를 푼다
+      // (활동 시각은 cmux 재시작 때 한꺼번에 새로 찍혀서 기준으로 쓰지 않는다)
+      const restarted = a.status === "working" || a.status === "ended";
+      if (marks.later.includes(a.id) && !restarted) {
+        keepLater.push(a.id);
+        b = "later";
+      } else if (marks.seen.includes(a.id) && !restarted) {
+        keepSeen.push(a.id);
+        if (b === "check") b = null; // 이미 본 세션은 목록에서 내린다
       }
+      if (b === "check" && isFocusedSession(w, a)) focus = { workspaceId: w.id, agentId: a.id };
       if (!b) continue;
       groups[b].push({
         id: (b === "later" ? "l:" : "s:") + a.id,
@@ -180,11 +212,22 @@ function entries() {
     // 닫힌 탭의 세션 id는 정리한다. 단 cmux가 막 켜졌을 땐 세션 목록이 늦게 채워지므로 2분 기다린다
     const agentIds = (w.agents ?? []).map((a) => a.id);
     const settled = t - LOADED_AT > 120 && agentIds.length > 0;
-    for (const id of later) {
-      if (!agentIds.includes(id) && !settled) keep.push(id);
-    }
-    if (!sameIds(keep, later)) writeLater(w, keep);
+    for (const id of marks.later) if (!agentIds.includes(id) && !settled) keepLater.push(id);
+    for (const id of marks.seen) if (!agentIds.includes(id) && !settled) keepSeen.push(id);
+    writeMarks(w, keepLater, keepSeen);
   }
+
+  // 확인 필요 세션을 보다가 다른 데로 넘어갔으면 그 세션을 "본 것"으로
+  if (lastFocus && (!focus || focus.agentId !== lastFocus.agentId)) {
+    const w = wsById(lastFocus.workspaceId);
+    if (w) {
+      const m = marksOf(w);
+      if (!m.later.includes(lastFocus.agentId) && !m.seen.includes(lastFocus.agentId)) {
+        writeMarks(w, m.later, m.seen.concat([lastFocus.agentId]));
+      }
+    }
+  }
+  lastFocus = focus;
 
   const out = [];
   // 섹션 제목 없이 한 목록에 급한 순서로: 멈춰 기다림 → 끝남 → 작업 중
