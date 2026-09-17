@@ -12,7 +12,8 @@ If you run several Claude Code / Codex sessions per project in cmux tabs, it get
 
 - **Session list, most urgent first.** Waiting for input (orange) → just finished (green) → working (blue). Each row shows what the session is doing (from the tab title), the project, its state, and how long it has been in that state. Click a row to jump straight to that tab.
 - **Fixed height.** The session area always takes the same number of rows (default 5), so the project list below doesn't jump around as sessions change state. Overflow collapses into "+N more".
-- **Snooze.** Hover a row and hit *later* (나중에) to move it into a collapsed "later" section. It comes back on its own as soon as that session does something new.
+- **Park for later.** Hover a row and hit *대기* to move it into a collapsed section. It stays there even after you open it, survives cmux restarts, and comes back once that session starts working again.
+- **Seen sessions step aside.** Open a session that needs you, move on, and it drops off the list until it needs you again.
 - **Project list with groups.** Same grouping, collapse, and pin order as the built-in cmux sidebar, plus a state icon per project (⚡ working, ! waiting, ✓ done) and the unread badge.
 - **Search.** Filter projects by name as you type. Press Enter to jump to the first match.
 
@@ -48,7 +49,7 @@ Edit the constants at the top of `deck.js`. cmux hot-reloads the file on save.
 
 ## Limitations
 
-- **Snoozed sessions reset when cmux restarts.** Custom sidebars have no storage.
+- **Uses the project description field for storage.** Custom sidebars have no storage, so parked and seen sessions are saved as a small `⟦deck …⟧` tag at the end of each project's description. Deck hides it, but the built-in sidebar may show it.
 - **No approve / deny buttons.** The sidebar data doesn't expose permission request IDs. Use cmux's Feed panel (`Ctrl-4`) or the notification buttons for that.
 - **"Waiting for input" is broad.** Claude Code also sends that signal about a minute after it finishes, so a finished session shows as green only briefly and then as waiting.
 - No drag-to-reorder or rename in the project list. Switch to the built-in sidebar for those.
@@ -67,7 +68,8 @@ cmux 왼쪽 사이드바를 **프로젝트별 AI 세션 상황판**으로 바꿔
 
 - **세션 칸**: 입력 대기(주황) → 완료(초록) → 작업 중(파랑) 순서. 누르면 그 탭으로 이동.
 - **칸 높이 고정**: 세션이 바뀌어도 아래 프로젝트 목록이 흔들리지 않아요.
-- **나중에**: 줄에 마우스를 올리고 [나중에]. 그 세션이 다시 움직이면 알아서 돌아와요.
+- **대기**: 줄에 마우스를 올리고 [대기]. 열어봐도 그대로 남고, 그 세션이 다시 일을 시작하면 빠져요.
+- **본 세션은 내려감**: 확인 필요 세션을 열어봤다가 넘어가면 목록에서 내려가요.
 - **프로젝트 목록**: 기본 사이드바와 같은 그룹, 접기, 고정 순서. 상태 아이콘과 안 읽은 알림 수.
 - **검색**: 이름으로 바로 거르기. Enter로 첫 결과 이동.
 
