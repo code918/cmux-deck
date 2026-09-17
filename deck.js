@@ -30,18 +30,58 @@ const SLOTS = 5;
 const now = () => data.clock()?.epoch ?? 0;
 
 // ── 나중에 ──
-// 미룬 세션 id → 미룰 당시의 마지막 활동 시각. 그 뒤로 활동이 생기면 목록에서 뺀다
-const deferred = new Map();
-const [deferTick, setDeferTick] = signal(0);
+// 사이드바에는 저장 공간이 없어서, 미룬 세션 id를 프로젝트 "설명" 칸 끝에 표시로 적어둔다.
+// 설명 칸은 cmux가 재시작해도 기억하므로 나중에 목록이 유지된다.
+//   예) "내가 쓴 설명\n⟦deck:later claude-abc,claude-def⟧"
+// 사용자가 직접 쓴 설명은 건드리지 않고 표시 부분만 붙였다 뗀다. 미룬 게 없으면 표시도 지운다.
+const MARK_RE = /\n?⟦deck:later ([^⟧]*)⟧\s*$/;
+const LOADED_AT = Math.floor(Date.now() / 1000);
+
+function parseDesc(desc) {
+  const text = desc || "";
+  const m = text.match(MARK_RE);
+  return { user: text.replace(MARK_RE, ""), ids: m ? m[1].split(",").filter(Boolean) : [] };
+}
+
+// 설명 칸 변경은 1초쯤 뒤에 데이터로 돌아온다. 그 사이엔 방금 쓴 값을 기준으로 보여준다
+const pendingLater = new Map(); // workspaceId -> ids
+const [laterTick, setLaterTick] = signal(0);
 const [laterOpen, setLaterOpen] = signal(false);
 
+function sameIds(a, b) {
+  return a.length === b.length && a.every((x) => b.includes(x));
+}
+
+function laterIds(w) {
+  laterTick();
+  const saved = parseDesc(w.description).ids;
+  if (pendingLater.has(w.id)) {
+    const want = pendingLater.get(w.id);
+    if (sameIds(want, saved)) pendingLater.delete(w.id); // cmux가 따라왔으면 해제
+    else return want;
+  }
+  return saved;
+}
+
+function writeLater(w, ids) {
+  if (sameIds(ids, laterIds(w))) return;
+  pendingLater.set(w.id, ids);
+  setLaterTick(laterTick() + 1);
+  const user = parseDesc(w.description).user;
+  const text = ids.length ? (user ? user + "\n" : "") + "⟦deck:later " + ids.join(",") + "⟧" : user;
+  if (text) cmux("workspace.action", { workspace_id: w.id, action: "set_description", description: text });
+  else cmux("workspace.action", { workspace_id: w.id, action: "clear_description" });
+}
+
 function defer(r) {
-  deferred.set(r.agentId, r.at);
-  setDeferTick(deferTick() + 1);
+  const w = wsById(r.workspaceId);
+  if (!w) return;
+  const ids = laterIds(w);
+  if (!ids.includes(r.agentId)) writeLater(w, ids.concat([r.agentId]));
 }
 function undefer(r) {
-  deferred.delete(r.agentId);
-  setDeferTick(deferTick() + 1);
+  const w = wsById(r.workspaceId);
+  if (w) writeLater(w, laterIds(w).filter((id) => id !== r.agentId));
 }
 
 // ── 프로젝트 검색 ──
@@ -100,20 +140,23 @@ function sessionLabel(w, a) {
 // 워크스페이스 → 세션 칸 + 나중에 + 프로젝트 목록을 한 줄로 펼친 평면 배열
 function entries() {
   const t = now();
-  deferTick();
   const groups = { check: [], work: [], later: [] };
-  const alive = new Set();
 
   for (const w of data.workspaces() ?? []) {
     const li = latestIdle(w);
+    const later = laterIds(w);
+    const keep = [];
     for (const a of w.agents ?? []) {
-      alive.add(a.id);
       let b = bucket(w, a, t, li);
-      if (deferred.has(a.id)) {
-        // 미룬 뒤에 세션이 다시 움직였으면(새 활동·작업 시작·종료) 나중에 목록에서 뺀다
-        const movedOn = (a.lastActivityAt ?? 0) > deferred.get(a.id) || a.status === "working" || a.status === "ended";
-        if (movedOn) deferred.delete(a.id);
-        else b = "later";
+      if (later.includes(a.id)) {
+        // 세션이 다시 작업을 시작했거나 끝났으면 나중에서 뺀다.
+        // (활동 시각은 cmux 재시작 때 한꺼번에 새로 찍혀서 기준으로 쓰지 않는다)
+        if (a.status === "working" || a.status === "ended") {
+          // 빼기
+        } else {
+          keep.push(a.id);
+          b = "later";
+        }
       }
       if (!b) continue;
       groups[b].push({
@@ -134,9 +177,14 @@ function entries() {
         at: a.lastActivityAt ?? 0,
       });
     }
+    // 닫힌 탭의 세션 id는 정리한다. 단 cmux가 막 켜졌을 땐 세션 목록이 늦게 채워지므로 2분 기다린다
+    const agentIds = (w.agents ?? []).map((a) => a.id);
+    const settled = t - LOADED_AT > 120 && agentIds.length > 0;
+    for (const id of later) {
+      if (!agentIds.includes(id) && !settled) keep.push(id);
+    }
+    if (!sameIds(keep, later)) writeLater(w, keep);
   }
-  // 사라진 세션은 미룬 목록에서도 정리
-  for (const id of Array.from(deferred.keys())) if (!alive.has(id)) deferred.delete(id);
 
   const out = [];
   // 섹션 제목 없이 한 목록에 급한 순서로: 멈춰 기다림 → 끝남 → 작업 중
