@@ -126,6 +126,7 @@ function entries() {
         project: w.title,
         color: w.color || "#7f7f7f",
         surfaceId: a.surfaceId,
+        panelId: a.panelId,
         // 지금 보고 있는 탭인지: 선택된 프로젝트 + 그 프로젝트에서 포커스된 탭
         focused: isFocusedSession(w, a),
         workspaceId: w.id,
@@ -231,9 +232,13 @@ function rowTone(r) {
   return r.waiting ? TONE.waiting : TONE.done;
 }
 
+// 탭 이동. surface.focus 가 실제로 알아듣는 건 탭의 패널 id(agents[j].panelId = tabs[k].id)다.
+// agents[j].surfaceId 로 보내면 "탭을 못 찾음"으로 조용히 실패해서 프로젝트만 바뀌거나 아무 반응이 없다.
+// 프로젝트 id도 같이 넘겨서 지금 보고 있는 프로젝트가 아닌 곳의 탭도 찾게 한다.
 function jump(r) {
+  const tabId = r.panelId || r.surfaceId;
   cmux("workspace.select", { workspace_id: r.workspaceId });
-  if (r.surfaceId) cmux("surface.focus", { surface_id: r.surfaceId });
+  if (tabId) cmux("surface.focus", { workspace_id: r.workspaceId, surface_id: tabId });
 }
 
 // 호버하면 오른쪽 위에 뜨는 작은 버튼
