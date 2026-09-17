@@ -113,8 +113,10 @@ function undefer(r) {
 // (여는 순간 내리면 보고 있는 줄이 눈앞에서 사라져서, 떠날 때 내린다)
 let lastFocus = null; // { workspaceId, agentId }
 
-// ── 프로젝트 검색 ──
+// ── 프로젝트 검색 / 정렬 ──
 const [query, setQuery] = signal("");
+// "recent": 그룹 무시하고 최근 작업 순, "group": 기본 사이드바와 같은 그룹 목록
+const [sortMode, setSortMode] = signal("recent");
 
 // 세션 상태 → 섹션
 // unread 는 프로젝트 단위 숫자라서, 그 프로젝트에서 가장 최근에 끝난 세션 하나에만 붙인다
@@ -260,7 +262,8 @@ function entries() {
     for (const w of hits) out.push({ id: "w:" + w.id, kind: "ws", wsId: w.id, inGroup: false });
     if (hits.length === 0) out.push({ id: "f:nohit", kind: "nohit" });
   } else {
-    for (const p of projectEntries(all)) out.push(p);
+    const rows = sortMode() === "recent" ? recentEntries(all) : projectEntries(all);
+    for (const p of rows) out.push(p);
   }
   return out;
 }
@@ -487,8 +490,25 @@ function projectsHeader(e) {
       .background("#7f7f7f1f")
       .cornerRadius(7)
       .paddingHorizontal(8),
-    Rectangle().fill("#00000000").frame({ height: 4 }),
+    // 정렬 전환: 최근순 / 그룹
+    HStack({ spacing: 10 }, [
+      sortTab("최근순", "recent"),
+      sortTab("그룹", "group"),
+      Spacer({ minLength: 0 }),
+    ])
+      .paddingHorizontal(14)
+      .paddingTop(8)
+      .paddingBottom(2)
+      .frame({ maxWidth: "infinity" }),
   ]);
+}
+
+function sortTab(label, mode) {
+  return Text(label)
+    .font(11)
+    .weight(() => (sortMode() === mode ? "semibold" : "regular"))
+    .color(() => (sortMode() === mode ? "primary" : "tertiary"))
+    .onTap(() => setSortMode(mode));
 }
 
 function noHit() {
@@ -519,6 +539,21 @@ function toggleCollapse(g) {
 
 const groupById = (id) => (data.groups() ?? []).find((g) => g.id === id);
 const wsById = (id) => (data.workspaces() ?? []).find((w) => w.id === id);
+
+// 프로젝트의 마지막 작업 시각: 세션 활동과 마지막 메시지 중 가장 최근
+function activityAt(w) {
+  let at = w.latestAt ?? 0;
+  for (const a of w.agents ?? []) at = Math.max(at, a.lastActivityAt ?? 0);
+  return at;
+}
+
+// 그룹 무시하고 최근 작업 순. 고정한 프로젝트는 맨 위, 시각이 같으면 cmux 순서
+function recentEntries(ws) {
+  return ws
+    .slice()
+    .sort((x, y) => (y.pinned ? 1 : 0) - (x.pinned ? 1 : 0) || activityAt(y) - activityAt(x) || x.index - y.index)
+    .map((w) => ({ id: "w:" + w.id, kind: "ws", wsId: w.id, inGroup: false }));
+}
 
 // 워크스페이스 배열 → 그룹 머리글 + 멤버 줄
 function projectEntries(ws) {
