@@ -14,8 +14,8 @@ If you run several Claude Code / Codex sessions per project in cmux tabs, it get
 - **Fixed height.** The session area always takes the same number of rows (default 5), so the project list below doesn't jump around as sessions change state. Overflow collapses into "+N more".
 - **Park for later.** Hover a row and hit *대기* to move it into a collapsed section. It stays there even after you open it, survives cmux restarts, and comes back once that session starts working again.
 - **Seen sessions step aside.** Open a session that needs you, move on, and it drops off the list until it needs you again.
-- **Project list with groups.** Same grouping, collapse, and pin order as the built-in cmux sidebar, plus a state icon per project (⚡ working, ! waiting, ✓ done) and the unread badge.
-- **Search.** Filter projects by name as you type. Press Enter to jump to the first match.
+- **Project list.** Recent-activity order by default, or the built-in grouping, collapse, and pin order. Each project shows a state icon (⚡ working, ! waiting, ✓ done) and the unread badge.
+- **Search and sort.** Filter projects by name as you type (Enter jumps to the first match), and switch the list between *최근순* (most recently active first, groups ignored) and *그룹* (the built-in grouping).
 
 ## Install
 
@@ -70,7 +70,7 @@ cmux 왼쪽 사이드바를 **프로젝트별 AI 세션 상황판**으로 바꿔
 - **칸 높이 고정**: 세션이 바뀌어도 아래 프로젝트 목록이 흔들리지 않아요.
 - **대기**: 줄에 마우스를 올리고 [대기]. 열어봐도 그대로 남고, 그 세션이 다시 일을 시작하면 빠져요.
 - **본 세션은 내려감**: 확인 필요 세션을 열어봤다가 넘어가면 목록에서 내려가요.
-- **프로젝트 목록**: 기본 사이드바와 같은 그룹, 접기, 고정 순서. 상태 아이콘과 안 읽은 알림 수.
-- **검색**: 이름으로 바로 거르기. Enter로 첫 결과 이동.
+- **프로젝트 목록**: 기본은 최근 작업순, 그룹 보기로도 전환 가능. 상태 아이콘과 안 읽은 알림 수.
+- **검색·정렬**: 이름으로 바로 거르기(Enter로 첫 결과 이동). 목록을 최근순과 그룹 보기로 전환.
 
 설치는 `./install.sh` 후 사이드바 버튼 우클릭 → **deck**.
