@@ -270,7 +270,11 @@ function entries() {
 
 // 첫 프롬프트가 제목일 때가 많아서 한 줄로 정리한다
 function cleanTitle(s) {
-  return String(s || "").replace(/^[✳✽✻·*\s]+/, "").replace(/\s+/g, " ").trim();
+  // 작업 중일 때 제목 앞에 붙는 회전 표시(✳ ◐ ◓ 점자 스피너 등)를 떼어낸다
+  return String(s || "")
+    .replace(/^[\u2731-\u273F\u25CB-\u25D3\u2802-\u28FF\u00B7*\s]+/, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function ago(sec) {
