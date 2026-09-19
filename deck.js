@@ -3,15 +3,15 @@
 // Deck — cmux 커스텀 사이드바. 프로젝트별 AI 코딩 세션 상황판.
 //
 //   세션 칸   : 확인이 필요한 세션과 돌아가는 세션을 급한 순서로 (칸 높이 고정)
-//               입력 대기(주황) → 완료(초록) → 작업 중(파랑)
-//   대기      : 확인하고 미뤄둔 세션. 그 세션이 다시 작업을 시작하면 빠진다
+//               입력 대기(주황) → 완료(초록) → 작업 중(파랑) → 확인함(회색)
+//   나중에 확인      : 확인하고 미뤄둔 세션. 그 세션이 다시 작업을 시작하면 빠진다
 //   프로젝트  : 기본 사이드바와 같은 그룹 목록 + 이름 검색 + 상태 아이콘
 // 줄을 누르면 그 프로젝트의 그 탭으로 바로 이동한다.
 //
 // 설치: ./install.sh  (또는 이 파일을 ~/.config/cmux/sidebars/deck.js 로 복사)
 // 열기: 사이드바 버튼 우클릭 → deck
 //
-// 대기 목록과 본 세션 표시는 프로젝트 설명 칸에 적어둬서 cmux를 재시작해도 유지된다.
+// 나중에 확인 목록과 본 세션 표시는 프로젝트 설명 칸에 적어둬서 cmux를 재시작해도 유지된다.
 //
 // 그룹 목록·접기 로직은 cmux 공식 예제(Examples/CustomSidebars/workspaces.js,
 // GPL-3.0-or-later, Copyright (c) Manaflow, Inc.)를 바탕으로 했다.
@@ -29,14 +29,14 @@ const SLOTS = 8;
 
 const now = () => data.clock()?.epoch ?? 0;
 
-// ── 대기 / 본 것 ──
+// ── 나중에 확인 / 본 것 ──
 // 사이드바에는 저장 공간이 없어서, 세션 표시를 프로젝트 "설명" 칸 끝에 적어둔다.
 // 설명 칸은 cmux가 재시작해도 기억하므로 목록이 유지된다.
 //   예) "내가 쓴 설명\n⟦deck later=claude-abc seen=claude-def⟧"
 // 사용자가 직접 쓴 설명은 건드리지 않고 표시 부분만 붙였다 뗀다. 표시할 게 없으면 표시도 지운다.
 //
-//   later : 다시 보겠다고 대기로 보낸 세션. 열어봐도 그대로 대기 칸에 남는다
-//   seen  : 확인 필요였는데 한 번 열어봤다가 떠난 세션. 목록에서 내린다
+//   later : 다시 보겠다고 나중에 확인으로 보낸 세션. 열어봐도 그대로 나중에 확인 칸에 남는다
+//   seen  : 확인 필요였는데 한 번 열어봤다가 떠난 세션. 없애지 않고 "확인함"으로 목록 맨 아래에 둔다
 // 둘 다 그 세션이 다시 작업을 시작하거나 끝나면 풀린다. 다음에 멈추면 다시 확인 필요로 올라온다.
 const MARK_RE = /\n?⟦deck(?::later ([^⟧]*)| ([^⟧]*))⟧\s*$/;
 const LOADED_AT = Math.floor(Date.now() / 1000);
@@ -94,7 +94,7 @@ function writeMarks(w, later, seen) {
   else cmux("workspace.action", { workspace_id: w.id, action: "clear_description" });
 }
 
-// 대기: 다시 보겠다는 뜻이므로 본 것 표시는 지운다
+// 나중에 확인: 다시 보겠다는 뜻이므로 본 것 표시는 지운다
 function defer(r) {
   const w = wsById(r.workspaceId);
   if (!w) return;
@@ -171,7 +171,7 @@ function sessionLabel(w, a) {
 // 워크스페이스 → 세션 칸 + 대기 + 프로젝트 목록을 한 줄로 펼친 평면 배열
 function entries() {
   const t = now();
-  const groups = { check: [], work: [], later: [] };
+  const groups = { check: [], work: [], seen: [], later: [] };
   let focus = null;
 
   for (const w of data.workspaces() ?? []) {
@@ -189,7 +189,7 @@ function entries() {
         b = "later";
       } else if (marks.seen.includes(a.id) && !restarted) {
         keepSeen.push(a.id);
-        if (b === "check") b = null; // 이미 본 세션은 목록에서 내린다
+        b = "seen"; // 이미 본 세션은 "확인함"으로 맨 아래에 남긴다 (다시 일을 시작할 때까지)
       }
       if (b === "check" && isFocusedSession(w, a)) focus = { workspaceId: w.id, agentId: a.id };
       if (!b) continue;
@@ -232,9 +232,9 @@ function entries() {
   lastFocus = focus;
 
   const out = [];
-  // 섹션 제목 없이 한 목록에 급한 순서로: 멈춰 기다림 → 끝남 → 작업 중
-  const order = (r) => (r.bucket === "check" ? (r.waiting ? 0 : 1) : 2);
-  const list = groups.check.concat(groups.work).sort((x, y) => order(x) - order(y) || y.at - x.at);
+  // 섹션 제목 없이 한 목록에 급한 순서로: 멈춰 기다림 → 끝남 → 작업 중 → 확인함
+  const order = (r) => (r.bucket === "check" ? (r.waiting ? 0 : 1) : r.bucket === "work" ? 2 : 3);
+  const list = groups.check.concat(groups.work, groups.seen).sort((x, y) => order(x) - order(y) || y.at - x.at);
   const overflow = list.length > SLOTS;
   // 넘치면 마지막 칸을 "+N개 더" 줄이 쓰지 않도록, 더보기 줄은 칸 밖에 항상 따로 둔다
   for (let i = 0; i < SLOTS; i++) {
@@ -246,7 +246,7 @@ function entries() {
     kind: "more",
     text: list.length === 0 ? "모두 조용해요" : overflow ? "+" + (list.length - SLOTS) + "개 더" : "",
   });
-  // 대기: 접어두는 게 기본. 머리글만 보이고 누르면 펼친다
+  // 나중에 확인: 접어두는 게 기본. 머리글만 보이고 누르면 펼친다
   const later = groups.later.sort((x, y) => y.at - x.at);
   // 0개여도 머리글은 남겨서 높이가 안 바뀌게 한다 (펼치기는 내가 누를 때만 높이가 바뀐다)
   out.push({ id: "h:later", kind: "laterHeader", bucket: "later", count: later.length });
@@ -319,13 +319,14 @@ function summary() {
 }
 
 function stateLabel(r) {
-  if (r.bucket === "later") return "대기";
+  if (r.bucket === "later") return "나중에 확인";
+  if (r.bucket === "seen") return "확인함";
   if (r.bucket === "work") return "작업 중";
   return r.waiting ? "입력 대기" : "완료";
 }
 
 function rowTone(r) {
-  if (r.bucket === "later") return TONE.later;
+  if (r.bucket === "later" || r.bucket === "seen") return TONE.later;
   if (r.bucket === "work") return TONE.work;
   return r.waiting ? TONE.waiting : TONE.done;
 }
@@ -364,7 +365,7 @@ function rowBody(e) {
           .lineLimit(1)
           .truncation("tail")
           .marquee()
-          .color(() => (e().kind === "later" ? "secondary" : "primary")),
+          .color(() => (e().kind === "later" || e().bucket === "seen" ? "secondary" : "primary")),
         Spacer({ minLength: 0 }),
       ]).frame({ maxWidth: "infinity" }),
       HStack({ spacing: 5 }, [
@@ -400,8 +401,8 @@ function slot() {
 function row(e) {
   return ZStack({ alignment: "trailing" }, [
     rowBody(e),
-    // 작업 중인 세션은 미룰 이유가 없어서 확인 필요에만 버튼을 단다
-    hoverButton("대기", () => defer(e())).opacity(() => (e().bucket === "check" ? 1 : 0)),
+    // 작업 중인 세션은 미룰 이유가 없어서 확인 필요·확인함에만 버튼을 단다
+    hoverButton("나중에", () => defer(e())).opacity(() => (e().bucket === "work" ? 0 : 1)),
   ])
     .paddingHorizontal(10)
     .paddingVertical(6)
@@ -412,7 +413,7 @@ function row(e) {
     .frame({ maxWidth: "infinity" })
     .onTap(() => jump(e()))
     .contextMenu([
-      Button("대기로 보내기", () => defer(e())),
+      Button("나중에 확인으로 보내기", () => defer(e())),
     ]);
 }
 
@@ -444,7 +445,7 @@ function laterHeader(e) {
         .color("tertiary")
         .rotation(() => (laterOpen() ? 90 : 0))
         .frame({ width: 10, height: 14 }),
-      Text("대기").font(11).weight("semibold").color(TONE.later),
+      Text("나중에 확인").font(11).weight("semibold").color(TONE.later),
       Text(() => String(e().count)).font(11).color("tertiary"),
       Spacer({ minLength: 0 }),
     ])
