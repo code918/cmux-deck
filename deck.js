@@ -263,13 +263,16 @@ function topEntries() {
 // 끌어 옮기기는 그룹 보기에서만 된다. 검색·최근순 줄은 키를 달리해서("r:") 못 잡는 줄로 만든다
 function projectList() {
   const all = data.workspaces() ?? [];
+  // 그룹의 대표 프로젝트(그룹 터미널)는 검색·최근순 목록에도 안 내놓는다. 닫으면 그룹이 사라져서 고를 일이 없게 한다
+  const anchors = new Set((data.groups() ?? []).map((g) => g.anchorId));
+  const pickable = all.filter((w) => !anchors.has(w.id));
   const still = (w) => ({ id: "r:" + w.id, kind: "ws", wsId: w.id, inGroup: false, groupId: null, drag: false });
   const q = query().trim().toLowerCase();
   if (q) {
-    const hits = all.filter((w) => (w.title || "").toLowerCase().includes(q));
+    const hits = pickable.filter((w) => (w.title || "").toLowerCase().includes(q));
     return hits.length ? hits.map(still) : [{ id: "f:nohit", kind: "nohit" }];
   }
-  return sortMode() === "recent" ? recentEntries(all).map(still) : projectEntries(orderedWs(all));
+  return sortMode() === "recent" ? recentEntries(pickable).map(still) : projectEntries(orderedWs(all));
 }
 
 // 첫 프롬프트가 제목일 때가 많아서 한 줄로 정리한다
@@ -487,7 +490,8 @@ function projectsHeader(e) {
         onSubmit: (t) => {
           const q = (t ?? "").trim().toLowerCase();
           if (!q) return;
-          const hit = (data.workspaces() ?? []).find((w) => (w.title || "").toLowerCase().includes(q));
+          const anchors = new Set((data.groups() ?? []).map((g) => g.anchorId));
+          const hit = (data.workspaces() ?? []).find((w) => !anchors.has(w.id) && (w.title || "").toLowerCase().includes(q));
           if (hit) cmux("workspace.select", { workspace_id: hit.id });
         },
       }).font(12),
@@ -818,7 +822,8 @@ function unreadBadge(w) {
     .cornerRadius(7);
 }
 
-// 그룹 머리글: 화살표는 접기/펴기, 나머지를 누르면 대표 프로젝트로 이동
+// 그룹 머리글: 어디를 눌러도 접기/펴기만 한다.
+// 대표 프로젝트(그룹 터미널)로는 이동하지 않는다. 거기서 터미널을 닫으면 그룹이 통째로 사라지기 때문
 function groupRow(e) {
   const g = () => groupById(e().groupId) ?? { id: e().groupId, name: "", collapsed: false };
   const anchor = () => wsById(g().anchorId);
@@ -828,8 +833,7 @@ function groupRow(e) {
       .weight("semibold")
       .color("tertiary")
       .rotation(() => (isCollapsed(g()) ? 0 : 90))
-      .frame({ width: 14, height: 16 })
-      .onTap(() => toggleCollapse(g())),
+      .frame({ width: 14, height: 16 }),
     Text(() => g().name)
       .font(12)
       .weight("semibold")
@@ -850,10 +854,7 @@ function groupRow(e) {
     // 머리글은 줄처럼 잡히진 않지만, 끌면 그룹이 통째로 움직인다
     .fixed()
     .block("g:" + e().groupId)
-    .onTap(() => {
-      const a = anchor();
-      if (a) cmux("workspace.select", { workspace_id: a.id });
-    })
+    .onTap(() => toggleCollapse(g()))
     .contextMenu(groupMenu(e().groupId));
 }
 
