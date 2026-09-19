@@ -6,6 +6,7 @@
 //               입력 대기(주황) → 완료(초록) → 작업 중(파랑) → 확인함(회색)
 //   나중에 확인      : 확인하고 미뤄둔 세션. 그 세션이 다시 작업을 시작하면 빠진다
 //   프로젝트  : 기본 사이드바와 같은 그룹 목록 + 이름 검색 + 상태 아이콘
+//               그룹 보기에서는 끌어서 그룹 사이로 옮기고, 우클릭으로 색상·그룹을 바꾼다
 // 줄을 누르면 그 프로젝트의 그 탭으로 바로 이동한다.
 //
 // 설치: ./install.sh  (또는 이 파일을 ~/.config/cmux/sidebars/deck.js 로 복사)
@@ -168,8 +169,9 @@ function sessionLabel(w, a) {
   );
 }
 
-// 워크스페이스 → 세션 칸 + 대기 + 프로젝트 목록을 한 줄로 펼친 평면 배열
-function entries() {
+// 워크스페이스 → 세션 칸 + 나중에 확인 + 프로젝트 머리글을 한 줄로 펼친 평면 배열
+// (프로젝트 줄은 끌어 옮길 수 있어야 해서 projectList 로 따로 뺀다)
+function topEntries() {
   const t = now();
   const groups = { check: [], work: [], seen: [], later: [] };
   let focus = null;
@@ -201,7 +203,7 @@ function entries() {
         waiting: a.status === "needs_input",
         label: sessionLabel(w, a),
         project: w.title,
-        color: w.color || "#7f7f7f",
+        color: colorOf(w),
         surfaceId: a.surfaceId,
         panelId: a.panelId,
         // 지금 보고 있는 탭인지: 선택된 프로젝트 + 그 프로젝트에서 포커스된 탭
@@ -252,20 +254,22 @@ function entries() {
   out.push({ id: "h:later", kind: "laterHeader", bucket: "later", count: later.length });
   if (laterOpen()) for (const r of later) out.push(r);
 
-  // 왼쪽 사이드바를 대체하므로 프로젝트 목록도 여기서 보여준다.
-  // 기본 사이드바와 같은 규칙: 그룹은 대표 프로젝트 자리에 머리글로, 접힌 그룹은 머리글만, 고정한 건 맨 위
-  const all = data.workspaces() ?? [];
   out.push({ id: "h:projects", kind: "projects" });
+  return out;
+}
+
+// 왼쪽 사이드바를 대체하므로 프로젝트 목록도 여기서 보여준다.
+// 기본 사이드바와 같은 규칙: 그룹은 대표 프로젝트 자리에 머리글로, 접힌 그룹은 머리글만, 고정한 건 맨 위
+// 끌어 옮기기는 그룹 보기에서만 된다. 검색·최근순 줄은 키를 달리해서("r:") 못 잡는 줄로 만든다
+function projectList() {
+  const all = data.workspaces() ?? [];
+  const still = (w) => ({ id: "r:" + w.id, kind: "ws", wsId: w.id, inGroup: false, groupId: null, drag: false });
   const q = query().trim().toLowerCase();
   if (q) {
     const hits = all.filter((w) => (w.title || "").toLowerCase().includes(q));
-    for (const w of hits) out.push({ id: "w:" + w.id, kind: "ws", wsId: w.id, inGroup: false });
-    if (hits.length === 0) out.push({ id: "f:nohit", kind: "nohit" });
-  } else {
-    const rows = sortMode() === "recent" ? recentEntries(all) : projectEntries(all);
-    for (const p of rows) out.push(p);
+    return hits.length ? hits.map(still) : [{ id: "f:nohit", kind: "nohit" }];
   }
-  return out;
+  return sortMode() === "recent" ? recentEntries(all).map(still) : projectEntries(orderedWs(all));
 }
 
 // 첫 프롬프트가 제목일 때가 많아서 한 줄로 정리한다
@@ -285,8 +289,8 @@ function ago(sec) {
 }
 
 function counts() {
-  const c = { check: 0, work: 0, later: 0 };
-  for (const e of entries()) {
+  const c = { check: 0, work: 0, seen: 0, later: 0 };
+  for (const e of topEntries()) {
     if (e.kind === "row") c[e.bucket] += 1;
     if (e.kind === "laterHeader") c.later = e.count;
   }
@@ -517,7 +521,7 @@ function sortTab(label, mode) {
 }
 
 function noHit() {
-  return Text("맞는 프로젝트가 없어요").font(12).color("tertiary").paddingHorizontal(14).paddingVertical(6);
+  return Text("맞는 프로젝트가 없어요").font(12).color("tertiary").paddingHorizontal(14).paddingVertical(6).fixed();
 }
 
 // ── 그룹 접기 (누르는 즉시 반영하고 cmux 쪽은 뒤따라 맞춘다) ──
@@ -556,8 +560,7 @@ function activityAt(w) {
 function recentEntries(ws) {
   return ws
     .slice()
-    .sort((x, y) => (y.pinned ? 1 : 0) - (x.pinned ? 1 : 0) || activityAt(y) - activityAt(x) || x.index - y.index)
-    .map((w) => ({ id: "w:" + w.id, kind: "ws", wsId: w.id, inGroup: false }));
+    .sort((x, y) => (y.pinned ? 1 : 0) - (x.pinned ? 1 : 0) || activityAt(y) - activityAt(x) || x.index - y.index);
 }
 
 // 워크스페이스 배열 → 그룹 머리글 + 멤버 줄
@@ -569,7 +572,7 @@ function projectEntries(ws) {
     if (!isCollapsed(g)) {
       for (const m of ws) {
         // 대표 프로젝트는 머리글이 대신하므로 줄로 다시 안 그린다
-        if (m.group === g.id && m.id !== g.anchorId) rows.push({ id: "w:" + m.id, kind: "ws", wsId: m.id, inGroup: true });
+        if (groupOf(m) === g.id && m.id !== g.anchorId) rows.push({ id: "w:" + m.id, kind: "ws", wsId: m.id, inGroup: true, groupId: g.id, drag: true });
       }
     }
     return rows;
@@ -579,20 +582,202 @@ function projectEntries(ws) {
   const rest = [];
   const seen = new Set();
   for (const w of ws) {
-    if (w.group && groups.has(w.group)) {
-      const g = groups.get(w.group);
+    const gid = groupOf(w);
+    if (gid && groups.has(gid)) {
+      const g = groups.get(gid);
       const isAnchor = w.id === g.anchorId || !ws.some((x) => x.id === g.anchorId);
       if (seen.has(g.id) || !isAnchor) continue;
       seen.add(g.id);
       (g.pinned ? pinned : rest).push(...section(g));
-    } else if (!w.group) {
-      (w.pinned ? pinned : rest).push({ id: "w:" + w.id, kind: "ws", wsId: w.id, inGroup: false });
+    } else if (!gid) {
+      (w.pinned ? pinned : rest).push({ id: "w:" + w.id, kind: "ws", wsId: w.id, inGroup: false, groupId: null, drag: true });
     }
   }
   for (const g of groups.values()) {
-    if (!seen.has(g.id) && ws.some((x) => x.group === g.id)) (g.pinned ? pinned : rest).push(...section(g));
+    if (!seen.has(g.id) && ws.some((x) => groupOf(x) === g.id)) (g.pinned ? pinned : rest).push(...section(g));
   }
   return [...pinned, ...rest];
+}
+
+// ── 누르는 즉시 반영 (색상 · 그룹 · 순서) ──
+// cmux 데이터는 1초쯤 뒤에 따라오므로 그 사이엔 방금 한 동작을 기준으로 그린다.
+// cmux가 따라오면 풀고, 안 따라와도(cmux가 순서를 다르게 정리한 경우 등) 몇 초 뒤엔 풀어서 실제 값을 보여준다.
+const HOLD = 4;
+const colorOverride = new Map(); // workspaceId -> { color: "#hex" | null, until }
+const groupOverride = new Map(); // workspaceId -> { group: groupId | null, until }
+let orderOverride = null; // { ids, until }
+const [liveTick, setLiveTick] = signal(0);
+const bump = () => setLiveTick(liveTick() + 1);
+const sameColor = (a, b) => String(a || "").toUpperCase() === String(b || "").toUpperCase();
+
+function colorOf(w) {
+  liveTick();
+  const o = w && colorOverride.get(w.id);
+  if (o) {
+    if (sameColor(o.color, w.color) || now() > o.until) colorOverride.delete(w.id);
+    else return o.color || "#7f7f7f";
+  }
+  return w?.color || "#7f7f7f";
+}
+
+function groupOf(w) {
+  liveTick();
+  const o = groupOverride.get(w.id);
+  if (o) {
+    if ((w.group ?? null) === o.group || now() > o.until) groupOverride.delete(w.id);
+    else return o.group;
+  }
+  return w.group ?? null;
+}
+
+// 방금 옮긴 순서대로 줄 세운 프로젝트 배열
+function orderedWs(ws) {
+  liveTick();
+  if (!orderOverride) return ws;
+  const wanted = orderOverride.ids.filter((id) => ws.some((w) => w.id === id));
+  if (now() > orderOverride.until || ws.map((w) => w.id).join(",") === wanted.join(",")) {
+    orderOverride = null;
+    return ws;
+  }
+  const rank = new Map(orderOverride.ids.map((id, i) => [id, i]));
+  return ws.slice().sort((a, b) => (rank.get(a.id) ?? 1e9) - (rank.get(b.id) ?? 1e9));
+}
+
+function setColor(w, hex) {
+  if (!w) return;
+  colorOverride.set(w.id, { color: hex, until: now() + HOLD });
+  bump();
+  if (hex) cmux("workspace.action", { action: "set_color", workspace_id: w.id, color: hex });
+  else cmux("workspace.action", { action: "clear_color", workspace_id: w.id });
+}
+
+// 그룹의 색: 그룹 자체엔 색을 안 주고 멤버들을 같은 색으로 칠해 쓰므로, 멤버들이 가장 많이 쓰는 색을 그룹 색으로 본다
+function groupColor(groupId, exceptId) {
+  const tally = new Map();
+  let best = null;
+  for (const x of data.workspaces() ?? []) {
+    if (x.id === exceptId || groupOf(x) !== groupId || !x.color) continue;
+    const c = String(x.color).toUpperCase();
+    tally.set(c, (tally.get(c) ?? 0) + 1);
+    if (!best || tally.get(c) > tally.get(best)) best = c;
+  }
+  return best;
+}
+
+function setGroup(w, groupId) {
+  if (!w || (w.group ?? null) === (groupId ?? null)) return;
+  // 그룹에 들어가면 그 그룹 색으로 맞춘다. 빼낼 때는 색을 그대로 둔다
+  const tone = groupId ? groupColor(groupId, w.id) : null;
+  if (tone && !sameColor(tone, w.color)) setColor(w, tone);
+  groupOverride.set(w.id, { group: groupId ?? null, until: now() + HOLD });
+  bump();
+  if (groupId) cmux("workspace.group.add", { group_id: groupId, workspace_id: w.id });
+  else cmux("workspace.group.remove", { workspace_id: w.id });
+}
+
+// ── 끌어 옮기기 (그룹 보기 전용) ──
+// index 는 끌던 줄이 놓인 자리(머리글 포함 평면 목록 기준)다. 위·아래 줄을 보고 어느 그룹에 넣을지 정한다.
+// 경계가 애매한 자리는 extra.side 로 가른다: "below"면 아래 줄과 한 묶음, 아니면 위 줄과 한 묶음.
+// 그룹 머리글을 끌면 그룹이 통째로 움직인다 (extra.block). 공식 예제 workspaces.js 의 규칙을 그대로 따랐다.
+function handleMove(key, index, extra) {
+  if (sortMode() !== "group" || query().trim()) return;
+  const ws = orderedWs(data.workspaces() ?? []);
+  const list = projectEntries(ws);
+
+  if (extra && extra.block && key.startsWith("g:")) {
+    // 그룹 통째 이동: 그룹 줄들을 뽑아 놓은 자리 앞에 (대표 프로젝트부터) 다시 끼운 전체 순서를 보낸다
+    const gid = key.slice(2);
+    const memberIds = new Set(ws.filter((w) => groupOf(w) === gid).map((w) => w.id));
+    const others = list.filter((e) => e.id !== key && e.groupId !== gid);
+    const nextEntry = others.slice(index).find((e) => e.kind === "ws" || e.kind === "group");
+    const nextId = nextEntry ? (nextEntry.kind === "group" ? groupById(nextEntry.groupId)?.anchorId : nextEntry.wsId) : null;
+    const anchorId = groupById(gid)?.anchorId;
+    const blockIds = ws.map((w) => w.id).filter((id) => memberIds.has(id));
+    if (anchorId && blockIds.includes(anchorId)) {
+      blockIds.splice(blockIds.indexOf(anchorId), 1);
+      blockIds.unshift(anchorId);
+    }
+    const rest = ws.map((w) => w.id).filter((id) => !memberIds.has(id));
+    let insertAt = nextId ? rest.indexOf(nextId) : rest.length;
+    if (insertAt < 0) insertAt = rest.length;
+    const full = [...rest.slice(0, insertAt), ...blockIds, ...rest.slice(insertAt)];
+    orderOverride = { ids: full, until: now() + HOLD };
+    bump();
+    cmux("workspace.reorder_many", { workspace_ids: JSON.stringify(full) });
+    return;
+  }
+
+  const id = key.slice(2);
+  const dragged = ws.find((w) => w.id === id);
+  if (!dragged) return;
+  const others = list.filter((e) => e.id !== key);
+  const prev = index > 0 ? others[index - 1] ?? null : null;
+  const nextAny = others[index] ?? null;
+  // 순서 기준은 아래쪽 줄. 머리글이면 그 그룹의 대표 프로젝트 앞 = 그룹 전체의 앞
+  const nextId = nextAny ? (nextAny.kind === "group" ? groupById(nextAny.groupId)?.anchorId : nextAny.wsId) : null;
+  const nextWs = nextId ? ws.find((w) => w.id === nextId) : null;
+
+  let container;
+  if (extra && extra.side === "below") {
+    container = nextAny && nextAny.kind === "ws" ? nextAny.groupId : null;
+  } else {
+    container = prev ? prev.groupId : null;
+    // 접힌 그룹 머리글 바로 아래는 "그룹 안"이 아니라 "그룹 다음"이다 (원래 그 그룹이면 그대로)
+    if (prev && prev.kind === "group") {
+      const g = groupById(prev.groupId);
+      if (g && isCollapsed(g) && groupOf(dragged) !== g.id) container = null;
+    }
+  }
+  // 놓은 자리를 바로 그려둔다: 아래쪽 줄 앞에 끼운 순서 + 새 그룹
+  const restIds = ws.map((w) => w.id).filter((x) => x !== id);
+  let at = nextId ? restIds.indexOf(nextId) : restIds.length;
+  if (at < 0) at = restIds.length;
+  orderOverride = { ids: [...restIds.slice(0, at), id, ...restIds.slice(at)], until: now() + HOLD };
+  bump();
+  setGroup(dragged, container ?? null);
+  if (nextWs) {
+    const before = nextWs.index;
+    cmux("workspace.reorder", { workspace_id: id, index: dragged.index < before ? before - 1 : before });
+  } else {
+    cmux("workspace.reorder", { workspace_id: id, index: ws.length - 1 });
+  }
+}
+
+// cmux 기본 팔레트 중 9개 (지금 그룹들이 쓰는 색 포함)
+// 우클릭 메뉴는 macOS 기본 메뉴라 도형에 색을 못 입힌다. 그래서 색이 보이도록 동그라미 이모지가 있는 색만 골랐다.
+// 색상값은 누르자마자 점을 칠하려고 같이 적어둔다 (cmux 기본 팔레트)
+const COLORS = [
+  ["🔴 빨강", "Red", "#C0392B"], ["🟠 주황", "Orange", "#A04000"], ["🟡 호박", "Amber", "#7D6608"], ["🟢 초록", "Green", "#196F3D"],
+  ["🩵 아쿠아", "Aqua", "#0E6B8C"], ["🔵 파랑", "Blue", "#1565C0"], ["🟣 보라", "Purple", "#6A1B9A"], ["🟤 갈색", "Brown", "#7B3F00"], ["⚫ 숯색", "Charcoal", "#3E4B5E"],
+];
+
+// 프로젝트 우클릭 메뉴: 그룹 옮기기 / 색상 바꾸기. w 는 대상 프로젝트를 돌려주는 함수
+// 지금 cmux는 우클릭 메뉴 안의 하위 메뉴(Menu)를 그리지 않아서 한 단계로 펼쳐 놓는다
+function projectMenu(w) {
+  return [
+    ...(data.groups() ?? []).map((g) =>
+      Button(() => "그룹 이동 → " + (groupById(g.id)?.name ?? ""), () => setGroup(w(), g.id)),
+    ),
+    Button("그룹에서 빼기", () => setGroup(w(), null)),
+    Divider(),
+    ...COLORS.map(([label, name, hex]) => Button(label, () => setColor(w(), hex))),
+    Button("⚪ 색상 지우기", () => setColor(w(), null)),
+  ];
+}
+
+// 그룹 머리글 우클릭 메뉴: 그룹 색 지정 = 그 그룹 프로젝트를 전부 같은 색으로 칠한다
+// (대표 프로젝트는 머리글 역할이라 원래 색을 안 칠해 쓰므로 건드리지 않는다)
+function groupMenu(groupId) {
+  const paint = (hex) => () => {
+    const anchorId = groupById(groupId)?.anchorId;
+    for (const x of data.workspaces() ?? []) {
+      if (groupOf(x) === groupId && x.id !== anchorId && !sameColor(hex, x.color)) setColor(x, hex);
+    }
+  };
+  return [
+    ...COLORS.map(([label, name, hex]) => Button("그룹 전체 → " + label, paint(hex))),
+    Button("그룹 전체 → ⚪ 색상 지우기", paint(null)),
+  ];
 }
 
 // 프로젝트 전체 상태: 세션 중 가장 급한 것 하나 (기다림 > 작업 중 > 완료)
@@ -662,17 +847,21 @@ function groupRow(e) {
     .background(() => (anchor()?.selected ? "#7f7f7f3d" : null))
     .hoverBackground(() => (anchor()?.selected ? "#7f7f7f3d" : "#7f7f7f1c"))
     .frame({ maxWidth: "infinity" })
+    // 머리글은 줄처럼 잡히진 않지만, 끌면 그룹이 통째로 움직인다
+    .fixed()
+    .block("g:" + e().groupId)
     .onTap(() => {
       const a = anchor();
       if (a) cmux("workspace.select", { workspace_id: a.id });
-    });
+    })
+    .contextMenu(groupMenu(e().groupId));
 }
 
 // 프로젝트 한 줄: 색 점 · 이름 · 안 읽은 알림 수. 그룹 안이면 들여쓴다
 function projectRow(e) {
   const w = () => wsById(e().wsId);
-  return HStack({ spacing: 8 }, [
-    Circle({ size: 7 }).fill(() => w()?.color || "#7f7f7f"),
+  const view = HStack({ spacing: 8 }, [
+    Circle({ size: 7 }).fill(() => colorOf(w())),
     Text(() => w()?.title ?? "")
       .font(13)
       .lineLimit(1)
@@ -689,8 +878,11 @@ function projectRow(e) {
     .cornerRadius(8)
     .background(() => (w()?.selected ? "#7f7f7f3d" : null))
     .hoverBackground(() => (w()?.selected ? "#7f7f7f3d" : "#7f7f7f24"))
-    .frame({ maxWidth: "infinity" })
-    .onTap(() => cmux("workspace.select", { workspace_id: e().wsId }));
+    .frame({ maxWidth: "infinity" });
+  // 줄 종류는 키로 고정되므로 끌 수 있는지도 여기서 한 번만 정한다
+  return (e().drag ? view : view.fixed())
+    .onTap(() => cmux("workspace.select", { workspace_id: e().wsId }))
+    .contextMenu(projectMenu(w));
 }
 
 // ── 루트 ───────────────────────────────────────────────────────────────
@@ -701,19 +893,26 @@ sidebar(
       Divider(),
       Rectangle().fill("#00000000").frame({ height: 4 }),
       ForEach(
-        { items: entries, key: (e) => e.id },
+        { items: topEntries, key: (e) => e.id },
         (e) => {
           // key 접두사로 줄 종류가 고정되므로 템플릿을 한 번만 고르면 된다
           const kind = e().kind;
           if (kind === "more") return more(e);
           if (kind === "slot") return slot();
           if (kind === "projects") return projectsHeader(e);
-          if (kind === "group") return groupRow(e);
-          if (kind === "ws") return projectRow(e);
-          if (kind === "nohit") return noHit();
           if (kind === "later") return laterRow(e);
           if (kind === "laterHeader") return laterHeader(e);
           return row(e);
+        },
+      ),
+      // 프로젝트 목록은 끌어 옮길 수 있는 목록으로 따로 둔다 (간격은 위 목록과 같게)
+      Reorderable(
+        { items: projectList, key: (e) => e.id, spacing: 2, onMove: handleMove },
+        (e) => {
+          const kind = e().kind;
+          if (kind === "group") return groupRow(e);
+          if (kind === "nohit") return noHit();
+          return projectRow(e);
         },
       ),
     ]),
