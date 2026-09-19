@@ -10,11 +10,12 @@ If you run several Claude Code / Codex sessions per project in cmux tabs, it get
 
 ## Features
 
-- **Session list, most urgent first.** Waiting for input (orange) → just finished (green) → working (blue). Each row shows what the session is doing (from the tab title), the project, its state, and how long it has been in that state. Click a row to jump straight to that tab.
-- **Fixed height.** The session area always takes the same number of rows (default 5), so the project list below doesn't jump around as sessions change state. Overflow collapses into "+N more".
-- **Park for later.** Hover a row and hit *대기* to move it into a collapsed section. It stays there even after you open it, survives cmux restarts, and comes back once that session starts working again.
-- **Seen sessions step aside.** Open a session that needs you, move on, and it drops off the list until it needs you again.
+- **Session list, most urgent first.** Waiting for input (orange) → just finished (green) → working (blue) → seen (grey). Each row shows what the session is doing (from the tab title), the project, its state, and how long it has been in that state. Click a row to jump straight to that tab.
+- **Fixed height.** The session area always takes the same number of rows (default 8), so the project list below doesn't jump around as sessions change state. Overflow collapses into "+N more".
+- **Park for later.** Hover a row and hit *나중에* to move it into a collapsed section. It stays there even after you open it, survives cmux restarts, and comes back once that session starts working again.
+- **Seen sessions step aside.** Open a session that needs you, move on, and it sinks to the bottom of the list as *확인함* (seen) instead of disappearing. It comes back up once it needs you again.
 - **Project list.** Recent-activity order by default, or the built-in grouping, collapse, and pin order. Each project shows a state icon (⚡ working, ! waiting, ✓ done) and the unread badge.
+- **Drag between groups, recolor.** In the *그룹* view, drag a project into, out of, or between groups (drag a group header to move the whole group). Right-click a project to change its color or send it to a group (a flat menu, since submenus are not rendered yet). A project that joins a group takes that group's color (the color most of its members use). Right-click a group header to paint the whole group at once.
 - **Search and sort.** Filter projects by name as you type (Enter jumps to the first match), and switch the list between *최근순* (most recently active first, groups ignored) and *그룹* (the built-in grouping).
 
 ## Install
@@ -66,11 +67,12 @@ The group list and collapse logic is based on the official cmux example `Example
 
 cmux 왼쪽 사이드바를 **프로젝트별 AI 세션 상황판**으로 바꿔주는 커스텀 사이드바예요. 어떤 세션이 나를 기다리는지, 방금 끝났는지, 아직 돌아가는지를 맨 위에서 보고, 그 아래에서 평소처럼 프로젝트를 고를 수 있어요.
 
-- **세션 칸**: 입력 대기(주황) → 완료(초록) → 작업 중(파랑) 순서. 누르면 그 탭으로 이동.
+- **세션 칸**: 입력 대기(주황) → 완료(초록) → 작업 중(파랑) → 확인함(회색) 순서. 누르면 그 탭으로 이동.
 - **칸 높이 고정**: 세션이 바뀌어도 아래 프로젝트 목록이 흔들리지 않아요.
-- **대기**: 줄에 마우스를 올리고 [대기]. 열어봐도 그대로 남고, 그 세션이 다시 일을 시작하면 빠져요.
-- **본 세션은 내려감**: 확인 필요 세션을 열어봤다가 넘어가면 목록에서 내려가요.
+- **나중에 확인**: 줄에 마우스를 올리고 [나중에]. 열어봐도 그대로 남고, 그 세션이 다시 일을 시작하면 빠져요.
+- **본 세션은 맨 아래로**: 확인 필요 세션을 열어봤다가 넘어가면 사라지지 않고 "확인함"으로 목록 맨 아래에 남아요. 다시 일을 시작하면 풀려요.
 - **프로젝트 목록**: 기본은 최근 작업순, 그룹 보기로도 전환 가능. 상태 아이콘과 안 읽은 알림 수.
+- **끌어서 그룹 이동·색상 변경**: 그룹 보기에서 프로젝트를 끌어 그룹 안팎으로 옮겨요(그룹 머리글을 끌면 그룹째 이동). 프로젝트를 우클릭하면 색상 변경과 그룹 이동 메뉴가 나와요. 그룹에 들어간 프로젝트는 그 그룹 색(멤버들이 가장 많이 쓰는 색)으로 자동으로 바뀌어요. 그룹 머리글을 우클릭하면 그룹 전체 색을 한 번에 바꿔요.
 - **검색·정렬**: 이름으로 바로 거르기(Enter로 첫 결과 이동). 목록을 최근순과 그룹 보기로 전환.
 
 설치는 `./install.sh` 후 사이드바 버튼 우클릭 → **deck**.
