@@ -25,7 +25,7 @@ const TONE = {
 // 끝난 세션을 "완료"로 보여주는 시간 (초). cmux 재시작 때 활동 시각이 한꺼번에 찍혀서 길게 잡으면 전부 올라온다
 const FRESH = 3 * 60;
 // 세션 칸 줄 수. 세션이 적어도 이만큼 자리를 잡아서 아래 프로젝트 목록이 위아래로 흔들리지 않게 한다
-const SLOTS = 5;
+const SLOTS = 8;
 
 const now = () => data.clock()?.epoch ?? 0;
 
