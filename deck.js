@@ -17,6 +17,9 @@
 // 그룹 목록·접기 로직은 cmux 공식 예제(Examples/CustomSidebars/workspaces.js,
 // GPL-3.0-or-later, Copyright (c) Manaflow, Inc.)를 바탕으로 했다.
 
+// 버전. 기능이 바뀌면 CHANGELOG.md 와 함께 올린다 (맨 위 "Deck" 옆에 작게 보인다)
+const VERSION = "0.2.0";
+
 const TONE = {
   waiting: "#FF8A5B",
   done: "#5AD1A0",
@@ -182,6 +185,9 @@ function topEntries() {
     const keepLater = [];
     const keepSeen = [];
     for (const a of w.agents ?? []) {
+      // /clear 직후처럼 아직 아무것도 묻지 않은 빈 세션은 확인할 게 없어서 목록에 올리지 않는다
+      // (/clear 하면 세션 id가 새로 바뀌고, 첫 프롬프트가 없으니 title 이 비어 있다)
+      if (a.status === "idle" && !a.title) continue;
       let b = bucket(w, a, t, li);
       // 다시 작업을 시작했거나 끝난 세션은 표시를 푼다
       // (활동 시각은 cmux 재시작 때 한꺼번에 새로 찍혀서 기준으로 쓰지 않는다)
@@ -306,6 +312,7 @@ function counts() {
 function summary() {
   return HStack({ spacing: 6 }, [
     Text("Deck").font(15).weight("semibold"),
+    Text("v" + VERSION).font(10).color("tertiary"),
     Spacer({ minLength: 0 }),
     Text(() => {
       const n = counts().check;

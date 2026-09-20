@@ -44,16 +44,27 @@ Edit the constants at the top of `deck.js`. cmux hot-reloads the file on save.
 
 | Constant | Default | Meaning |
 | --- | --- | --- |
-| `SLOTS` | `5` | Number of rows reserved for sessions |
+| `SLOTS` | `8` | Number of rows reserved for sessions |
 | `FRESH` | `180` | Seconds a finished session stays in the list as "done" |
 | `TONE` | | Colors for each state |
+
+## Versions and updating
+
+The running version is shown next to the title at the top of the sidebar (`VERSION` in `deck.js`). Changes are listed in [CHANGELOG.md](CHANGELOG.md), and each version is tagged (`v0.2.0`).
+
+`install.sh` links the file instead of copying it, so updating is just:
+
+```sh
+git pull && cmux sidebar reload deck
+```
 
 ## Limitations
 
 - **Uses the project description field for storage.** Custom sidebars have no storage, so parked and seen sessions are saved as a small `⟦deck …⟧` tag at the end of each project's description. Deck hides it, but the built-in sidebar may show it.
 - **No approve / deny buttons.** The sidebar data doesn't expose permission request IDs. Use cmux's Feed panel (`Ctrl-4`) or the notification buttons for that.
 - **"Waiting for input" is broad.** Claude Code also sends that signal about a minute after it finishes, so a finished session shows as green only briefly and then as waiting.
-- No drag-to-reorder or rename in the project list. Switch to the built-in sidebar for those.
+- No rename in the project list, and drag only works in the *그룹* view. Switch to the built-in sidebar for the rest.
+- **Group headers don't open the group's own terminal.** Closing that terminal deletes the whole group in cmux, so Deck keeps it out of reach: a header click only collapses or expands.
 
 ## License
 
@@ -74,5 +85,7 @@ cmux 왼쪽 사이드바를 **프로젝트별 AI 세션 상황판**으로 바꿔
 - **프로젝트 목록**: 기본은 최근 작업순, 그룹 보기로도 전환 가능. 상태 아이콘과 안 읽은 알림 수.
 - **끌어서 그룹 이동·색상 변경**: 그룹 보기에서 프로젝트를 끌어 그룹 안팎으로 옮겨요(그룹 머리글을 끌면 그룹째 이동). 프로젝트를 우클릭하면 색상 변경과 그룹 이동 메뉴가 나와요. 그룹에 들어간 프로젝트는 그 그룹 색(멤버들이 가장 많이 쓰는 색)으로 자동으로 바뀌어요. 그룹 머리글을 우클릭하면 그룹 전체 색을 한 번에 바꿔요.
 - **검색·정렬**: 이름으로 바로 거르기(Enter로 첫 결과 이동). 목록을 최근순과 그룹 보기로 전환.
+
+버전은 사이드바 맨 위 "Deck" 옆에 보여요. 바뀐 내용은 [CHANGELOG.md](CHANGELOG.md), 업데이트는 `git pull && cmux sidebar reload deck`.
 
 설치는 `./install.sh` 후 사이드바 버튼 우클릭 → **deck**.
