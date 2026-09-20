@@ -18,6 +18,7 @@ Versions follow [Semantic Versioning](https://semver.org/). While Deck is 0.x, a
 - Clicking a group header only collapses or expands it. Group terminals are also left out of the recent and search lists, because closing one deletes the whole group in cmux.
 
 ### Fixed
+- A session cleared with `/clear` really does leave the list now. cmux reports that empty prompt as *needs_input*, not *idle*, so it kept coming back as a waiting session — and the project's state icon kept showing the same warning.
 - Spinner characters cmux puts in front of a working tab's title no longer show up in session names.
 
 ## 0.1.0 — 2026-09-18

@@ -153,6 +153,17 @@ function meaningful(title, w) {
   return t;
 }
 
+// /clear 로 비워진 세션인지. cmux 는 이 상태도 "입력 대기"로 넘기기 때문에 제목으로 가른다
+// (첫 프롬프트가 없고, 탭 제목도 에이전트가 붙인 제목이 아니라 프로젝트·폴더 이름으로 돌아와 있다)
+function blankSession(w, a) {
+  if (a.title) return false;
+  const tab = (w.tabs ?? []).find((x) => x.id === a.panelId || x.surfaceId === a.surfaceId);
+  const t = cleanTitle(tab?.title);
+  if (!t) return true;
+  const dir = String(w.directory || "").split("/").filter(Boolean).pop();
+  return t === w.title || t === dir || t === "Claude Code" || t === "Claude";
+}
+
 function isFocusedSession(w, a) {
   if (!w.selected) return false;
   const tab = (w.tabs ?? []).find((x) => x.id === a.panelId || x.surfaceId === a.surfaceId);
@@ -188,6 +199,8 @@ function topEntries() {
       // /clear 직후처럼 아직 아무것도 묻지 않은 빈 세션은 확인할 게 없어서 목록에 올리지 않는다
       // (/clear 하면 세션 id가 새로 바뀌고, 첫 프롬프트가 없으니 title 이 비어 있다)
       if (a.status === "idle" && !a.title) continue;
+      // /clear 직후 빈 프롬프트로 기다리는 세션은 cmux 가 "입력 대기"로 넘겨서 따로 거른다
+      if (a.status === "needs_input" && blankSession(w, a)) continue;
       let b = bucket(w, a, t, li);
       // 다시 작업을 시작했거나 끝난 세션은 표시를 푼다
       // (활동 시각은 cmux 재시작 때 한꺼번에 새로 찍혀서 기준으로 쓰지 않는다)
@@ -798,6 +811,8 @@ function projectState(w) {
   const li = latestIdle(w);
   let st = null;
   for (const a of w.agents ?? []) {
+    // 세션 칸과 같은 기준: /clear 로 비워져 기다리는 세션은 확인할 게 없다
+    if (a.status === "needs_input" && blankSession(w, a)) continue;
     const b = bucket(w, a, t, li);
     if (b === "check" && a.status === "needs_input") return "waiting";
     if (b === "work") st = "work";
