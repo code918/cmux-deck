@@ -1,22 +1,21 @@
 # Deck
 
-A custom sidebar for [cmux](https://github.com/manaflow-ai/cmux) that shows every AI coding session across all your projects, and which one needs you next.
+A custom sidebar for [cmux](https://github.com/manaflow-ai/cmux) that turns the project list into a tab tree: search on top, your projects grouped below, and every tab of a project listed right under it.
 
 ![Deck screenshot](docs/screenshot.png)
 
-If you run several Claude Code / Codex sessions per project in cmux tabs, it gets hard to tell which session is waiting on you, which one just finished, and which one is still working. Deck puts that at the top of the left sidebar, and keeps your normal project list right below it.
+If you run several Claude Code / Codex sessions per project, the tab bar stops being enough — you can't see what each tab is doing, or which one is waiting on you, without clicking through them. Deck lists them all in the sidebar, under the project they belong to, with a state dot on each row.
 
 > The UI labels are in Korean for now. See [한국어](#한국어) below.
 
 ## Features
 
-- **Session list, most urgent first.** Waiting for input (orange) → just finished (green) → working (blue) → seen (grey). Each row shows what the session is doing (from the tab title), the project, its state, and how long it has been in that state. Click a row to jump straight to that tab.
-- **Fixed height.** The session area always takes the same number of rows (default 8), so the project list below doesn't jump around as sessions change state. Overflow collapses into "+N more".
-- **Park for later.** Hover a row and hit *나중에* to move it into a collapsed section. It stays there even after you open it, survives cmux restarts, and comes back once that session starts working again.
-- **Seen sessions step aside.** Open a session that needs you, move on, and it sinks to the bottom of the list as *확인함* (seen) instead of disappearing. It comes back up once it needs you again.
-- **Project list.** Recent-activity order by default, or the built-in grouping, collapse, and pin order. Each project shows a state icon (⚡ working, ! waiting, ✓ done) and the unread badge.
+- **Tabs under each project.** Every open tab is a row under its project, in tab order, showing the tab title. The dot on the left is that tab's session state — orange: waiting for input, blue: working, green: just finished, grey: nothing running — and the time on the right is how long it has been in that state. Click a row to jump straight to that tab.
+- **Click a project to fold its tabs.** A project row doesn't open the project — it folds its tabs away and shows the tab count instead, the same as a group header. Jumping is what the tab rows are for. To open a project directly (say, one with no tabs), right-click → *이 프로젝트 열기*. *탭 접기* / *탭 펼치기* on the right of the sort row folds or unfolds every project at once.
+- **Groups read as sections.** A thin rule and a small bold name, no indent — so the project and tab names below get the full width. A collapsed group shows its project count, the most urgent state inside it, and the unread total.
+- **Project list.** The built-in grouping by default, with collapse and pin order, or recent-activity order. Each project shows a state icon (⚡ working, ! waiting, ✓ done) and the unread badge.
 - **Drag between groups, recolor.** In the *그룹* view, drag a project into, out of, or between groups (drag a group header to move the whole group). Right-click a project to change its color or send it to a group (a flat menu, since submenus are not rendered yet). A project that joins a group takes that group's color (the color most of its members use). Right-click a group header to paint the whole group at once.
-- **Search and sort.** Filter projects by name as you type (Enter jumps to the first match), and switch the list between *최근순* (most recently active first, groups ignored) and *그룹* (the built-in grouping).
+- **Search and sort.** Filter projects by name as you type (Enter jumps to the first match), and switch the list between *그룹* (the built-in grouping) and *최근순* (most recently active first, groups ignored).
 
 ## Install
 
@@ -44,13 +43,13 @@ Edit the constants at the top of `deck.js`. cmux hot-reloads the file on save.
 
 | Constant | Default | Meaning |
 | --- | --- | --- |
-| `SLOTS` | `8` | Number of rows reserved for sessions |
-| `FRESH` | `180` | Seconds a finished session stays in the list as "done" |
+| `FRESH` | `180` | Seconds a finished session keeps its green "done" dot |
+| `STALE` | `3600` | Seconds a "waiting for input" signal counts as urgent. Past this the tab goes quiet — see below |
 | `TONE` | | Colors for each state |
 
 ## Versions and updating
 
-The running version is shown next to the title at the top of the sidebar (`VERSION` in `deck.js`). Changes are listed in [CHANGELOG.md](CHANGELOG.md), and each version is tagged (`v0.2.0`).
+The running version is `VERSION` in `deck.js` (it isn't shown in the sidebar). Changes are listed in [CHANGELOG.md](CHANGELOG.md), and each version is tagged (`v0.3.0`).
 
 `install.sh` links the file instead of copying it, so updating is just:
 
@@ -60,11 +59,11 @@ git pull && cmux sidebar reload deck
 
 ## Limitations
 
-- **Uses the project description field for storage.** Custom sidebars have no storage, so parked and seen sessions are saved as a small `⟦deck …⟧` tag at the end of each project's description. Deck hides it, but the built-in sidebar may show it.
 - **No approve / deny buttons.** The sidebar data doesn't expose permission request IDs. Use cmux's Feed panel (`Ctrl-4`) or the notification buttons for that.
-- **"Waiting for input" is broad.** Claude Code also sends that signal about a minute after it finishes, so a finished session shows as green only briefly and then as waiting.
+- **"Waiting for input" is broad, and it never expires on its own.** Claude Code sends that signal about a minute after it finishes and leaves it on, and cmux doesn't count `/clear` as activity — so without help, every tab left open overnight comes back orange with yesterday's timestamp. Deck treats the signal as urgent only while it is fresh (`STALE`, one hour by default) and lets older ones go quiet. The trade-off: a question you left unanswered all day stops standing out.
+- **Collapsed tab lists are not remembered.** Custom sidebars have no storage, so every project starts expanded after a cmux restart.
 - No rename in the project list, and drag only works in the *그룹* view. Switch to the built-in sidebar for the rest.
-- **Group headers don't open the group's own terminal.** Closing that terminal deletes the whole group in cmux, so Deck keeps it out of reach: a header click only collapses or expands.
+- **Group headers don't open the group's own terminal.** Closing that terminal deletes the whole group in cmux, so Deck keeps it out of reach: a header click only collapses or expands. The group terminal's own tabs are not listed either.
 
 ## License
 
@@ -76,16 +75,15 @@ The group list and collapse logic is based on the official cmux example `Example
 
 ## 한국어
 
-cmux 왼쪽 사이드바를 **프로젝트별 AI 세션 상황판**으로 바꿔주는 커스텀 사이드바예요. 어떤 세션이 나를 기다리는지, 방금 끝났는지, 아직 돌아가는지를 맨 위에서 보고, 그 아래에서 평소처럼 프로젝트를 고를 수 있어요.
+cmux 왼쪽 사이드바를 **프로젝트 + 탭 목록**으로 바꿔주는 커스텀 사이드바예요. 탭을 많이 열어두면 탭 바만 봐서는 뭐가 뭔지 모르는데, 프로젝트 아래에 그 프로젝트의 탭을 쭉 펼쳐서 한눈에 고를 수 있게 해줘요.
 
-- **세션 칸**: 입력 대기(주황) → 완료(초록) → 작업 중(파랑) → 확인함(회색) 순서. 누르면 그 탭으로 이동.
-- **칸 높이 고정**: 세션이 바뀌어도 아래 프로젝트 목록이 흔들리지 않아요.
-- **나중에 확인**: 줄에 마우스를 올리고 [나중에]. 열어봐도 그대로 남고, 그 세션이 다시 일을 시작하면 빠져요.
-- **본 세션은 맨 아래로**: 확인 필요 세션을 열어봤다가 넘어가면 사라지지 않고 "확인함"으로 목록 맨 아래에 남아요. 다시 일을 시작하면 풀려요.
-- **프로젝트 목록**: 기본은 최근 작업순, 그룹 보기로도 전환 가능. 상태 아이콘과 안 읽은 알림 수.
+- **프로젝트 아래에 탭**: 열려 있는 탭을 순서대로 한 줄씩. 왼쪽 점이 그 탭의 상태(주황=입력 대기, 파랑=작업 중, 초록=방금 끝남, 회색=조용함)고, 오른쪽은 그 상태로 있은 시간. 누르면 그 탭으로 바로 이동해요. 사이드바가 좁아도 이름이 살도록 들여쓰기는 최소로 주고, 경로가 제목인 탭은 폴더 이름만 보여줘요.
+- **프로젝트를 누르면 탭이 접혀요**: 프로젝트 줄은 그 프로젝트로 넘어가지 않고 탭 목록만 접었다 펴요(그룹 머리글과 같은 규칙). 이동은 탭 줄로 해요. 프로젝트를 바로 열고 싶으면 우클릭 → *이 프로젝트 열기*. 정렬 줄 오른쪽 *탭 접기* / *탭 펼치기* 로 전체를 한 번에.
+- **그룹은 구역으로**: 얇은 선과 작은 이름만 두고 들여쓰기를 안 써요. 그만큼 아래 프로젝트·탭 이름이 폭을 다 써요. 접으면 그룹 안 프로젝트 수와 가장 급한 상태, 안 읽은 수를 머리글에 모아 보여줘요.
+- **프로젝트 목록**: 기본은 그룹 보기, 최근 작업순으로도 전환 가능. 상태 아이콘과 안 읽은 알림 수.
 - **끌어서 그룹 이동·색상 변경**: 그룹 보기에서 프로젝트를 끌어 그룹 안팎으로 옮겨요(그룹 머리글을 끌면 그룹째 이동). 프로젝트를 우클릭하면 색상 변경과 그룹 이동 메뉴가 나와요. 그룹에 들어간 프로젝트는 그 그룹 색(멤버들이 가장 많이 쓰는 색)으로 자동으로 바뀌어요. 그룹 머리글을 우클릭하면 그룹 전체 색을 한 번에 바꿔요.
-- **검색·정렬**: 이름으로 바로 거르기(Enter로 첫 결과 이동). 목록을 최근순과 그룹 보기로 전환.
+- **검색·정렬**: 이름으로 바로 거르기(Enter로 첫 결과 이동). 목록을 그룹 보기와 최근순으로 전환.
 
-버전은 사이드바 맨 위 "Deck" 옆에 보여요. 바뀐 내용은 [CHANGELOG.md](CHANGELOG.md), 업데이트는 `git pull && cmux sidebar reload deck`.
+바뀐 내용은 [CHANGELOG.md](CHANGELOG.md), 업데이트는 `git pull && cmux sidebar reload deck`.
 
 설치는 `./install.sh` 후 사이드바 버튼 우클릭 → **deck**.
