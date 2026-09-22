@@ -15,7 +15,8 @@ If you run several Claude Code / Codex sessions per project, the tab bar stops b
 - **Groups read as sections.** A thin rule and a small bold name, no indent — so the project and tab names below get the full width. A collapsed group shows its project count, the most urgent state inside it, and the unread total.
 - **Project list.** The built-in grouping by default, with collapse and pin order, or recent-activity order. Each project shows a state icon (⚡ working, ! waiting, ✓ done) and the unread badge.
 - **Drag between groups, recolor.** In the *그룹* view, drag a project into, out of, or between groups (drag a group header to move the whole group). Right-click a project to change its color or send it to a group (a flat menu, since submenus are not rendered yet). A project that joins a group takes that group's color (the color most of its members use). Right-click a group header to paint the whole group at once.
-- **Search and sort.** Filter projects by name as you type (Enter jumps to the first match), and switch the list between *그룹* (the built-in grouping) and *최근순* (most recently active first, groups ignored).
+- **Search by tab title.** Type and the list becomes the matching tabs across every project, newest first, each row naming the project it belongs to. Enter jumps to the top one. Search ignores age — a tab that has been quiet for a week still shows up.
+- **_최근순_: just the tabs, newest first.** The other view drops projects and groups entirely and lists tabs touched in the last 24 hours (`RECENT`), most recent first. Grouping by project doesn't work here: one busy project drags all of its quiet tabs up with it, and a project with 17 tabs buries everything else.
 
 ## Install
 
@@ -45,6 +46,7 @@ Edit the constants at the top of `deck.js`. cmux hot-reloads the file on save.
 | --- | --- | --- |
 | `FRESH` | `180` | Seconds a finished session keeps its green "done" dot |
 | `STALE` | `3600` | Seconds a "waiting for input" signal counts as urgent. Past this the tab goes quiet — see below |
+| `RECENT` | `86400` | Seconds a tab stays listed in *최근순*. Search is not affected |
 | `TONE` | | Colors for each state |
 
 ## Versions and updating
@@ -82,7 +84,8 @@ cmux 왼쪽 사이드바를 **프로젝트 + 탭 목록**으로 바꿔주는 커
 - **그룹은 구역으로**: 얇은 선과 작은 이름만 두고 들여쓰기를 안 써요. 그만큼 아래 프로젝트·탭 이름이 폭을 다 써요. 접으면 그룹 안 프로젝트 수와 가장 급한 상태, 안 읽은 수를 머리글에 모아 보여줘요.
 - **프로젝트 목록**: 기본은 그룹 보기, 최근 작업순으로도 전환 가능. 상태 아이콘과 안 읽은 알림 수.
 - **끌어서 그룹 이동·색상 변경**: 그룹 보기에서 프로젝트를 끌어 그룹 안팎으로 옮겨요(그룹 머리글을 끌면 그룹째 이동). 프로젝트를 우클릭하면 색상 변경과 그룹 이동 메뉴가 나와요. 그룹에 들어간 프로젝트는 그 그룹 색(멤버들이 가장 많이 쓰는 색)으로 자동으로 바뀌어요. 그룹 머리글을 우클릭하면 그룹 전체 색을 한 번에 바꿔요.
-- **검색·정렬**: 이름으로 바로 거르기(Enter로 첫 결과 이동). 목록을 그룹 보기와 최근순으로 전환.
+- **탭 제목으로 검색**: 치면 모든 프로젝트의 탭 중 제목이 맞는 것만 최근 움직인 순으로 나와요(Enter로 맨 위 탭 이동). 어느 프로젝트 탭인지 줄마다 같이 보여줘요. 오래 조용한 탭도 검색엔 나와요.
+- **최근순은 탭만**: 프로젝트·그룹 묶음을 아예 버리고, 하루 안에 움직인 탭만 최근 순으로 쭉 보여줘요. 프로젝트로 묶으면 바쁜 프로젝트 하나가 자기 조용한 탭까지 다 끌고 올라와서 나머지가 묻혀요.
 
 바뀐 내용은 [CHANGELOG.md](CHANGELOG.md), 업데이트는 `git pull && cmux sidebar reload deck`.
 

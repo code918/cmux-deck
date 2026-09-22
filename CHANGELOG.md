@@ -20,6 +20,8 @@ A different sidebar: instead of ranking sessions across projects, Deck now shows
 
 ### Changed
 - The project list opens in *그룹* order by default (it was *최근순*).
+- **Search matches tab titles, not project names.** Results come back as tab rows — the tab title, the project it belongs to, and its state — most recently active first, and Enter jumps to the top one. Unlike *최근순*, search doesn't filter by age: if you are looking for a tab, how long it has been quiet shouldn't hide it.
+- **_최근순_ drops the project grouping entirely and lists tabs.** Grouping by project meant one busy project dragged all of its quiet tabs to the top with it — a project with 17 tabs buried everything else under tabs that hadn't moved in days. Now only tabs touched within `RECENT` (default 24 hours) are listed, newest first, each row naming its project. *탭 접기* is hidden in this view since there is nothing to fold.
 - **A group now reads as a section, not a row.** A thin rule and some air above it, the name small and bold, and the collapse chevron moved to the far right. Collapsed groups show their project count, the most urgent state inside, and the unread total; expanded ones stay quiet, because every row below says it already.
 - **Only the tab row is highlighted.** Opening a tab used to light up its project row too, so two rows were selected at once and neither told you where you actually were.
 - **Clicking a project no longer opens it** — it folds its tabs, the same as a group header. Jumping is what the tab rows are for; *이 프로젝트 열기* in the right-click menu still opens a project directly (the only way in for a project with no tabs).
