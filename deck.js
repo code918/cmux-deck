@@ -2,12 +2,12 @@
 //
 // Deck — cmux 커스텀 사이드바. 프로젝트와 그 안의 탭을 한 목록으로 본다.
 //
-//   검색     : 프로젝트 이름으로 거르기 (Enter = 첫 결과로 이동)
-//   프로젝트 : 기본은 그룹 목록. 끌어서 그룹 사이로 옮기고, 우클릭으로 색상·그룹을 바꾼다
-//   탭       : 프로젝트 줄 바로 아래에 그 프로젝트의 탭을 순서대로 펼친다
-//              탭 이름 왼쪽 점은 그 탭 세션의 상태 (주황=입력 대기, 파랑=작업 중, 초록=방금 끝남)
-//              프로젝트 줄 왼쪽 ▸ 를 누르면 그 프로젝트의 탭 목록만 접는다
-// 줄을 누르면 그 프로젝트(또는 그 탭)로 바로 이동한다.
+//   검색     : 탭 제목으로 거르기. 결과는 탭 줄 (Enter = 맨 위 탭으로 이동)
+//   그룹 보기 : 그룹 구역 → 프로젝트 → 그 프로젝트의 탭. 끌어서 그룹 사이로 옮기고,
+//              우클릭으로 색상·그룹을 바꾼다. 프로젝트 줄을 누르면 탭 목록만 접힌다
+//   최근순   : 묶음 없이 최근에 움직인 탭만 활동 순으로
+//   탭 줄    : 왼쪽 점이 그 탭 세션의 상태 (주황=입력 대기, 파랑=작업 중, 초록=방금 끝남)
+// 탭 줄을 누르면 그 탭으로 바로 이동한다.
 //
 // 설치: ./install.sh  (또는 이 파일을 ~/.config/cmux/sidebars/deck.js 로 복사)
 // 열기: 사이드바 버튼 우클릭 → deck
@@ -30,6 +30,8 @@ const FRESH = 3 * 60;
 // 그래서 어제 쓰고 놔둔 탭까지 전부 "입력 대기 · 1일"로 올라온다 — 정작 지금 급한 건 하나도 없는데.
 // 이 시간이 지난 입력 대기는 상태 없음(회색)으로 내린다. 급하면 짧게, 자리를 오래 비우면 길게 잡는다
 const STALE = 60 * 60;
+// 최근순에 올릴 탭의 나이 (초). 이보다 오래 조용한 탭은 최근순 목록에서 빠진다
+const RECENT = 24 * 60 * 60;
 
 const now = () => data.clock()?.epoch ?? 0;
 
@@ -150,18 +152,38 @@ function jumpTab(wsId, tabId) {
 
 // ── 목록 만들기 ────────────────────────────────────────────────────────
 
-// 프로젝트의 마지막 작업 시각: 세션 활동과 마지막 메시지 중 가장 최근
-function activityAt(w) {
-  let at = w.latestAt ?? 0;
-  for (const a of w.agents ?? []) at = Math.max(at, a.lastActivityAt ?? 0);
-  return at;
+// 최근순: 프로젝트 묶음을 아예 버리고, 최근에 움직인 탭만 활동 순으로 쭉 세운다.
+// 프로젝트로 묶으면 조용한 탭까지 프로젝트를 따라 딸려 올라와서 "최근"이라는 말이 무색해진다.
+// 프로젝트 이름은 각 줄에 같이 적어서 어디 탭인지 알 수 있게 한다
+function recentTabs(ws) {
+  const t = now();
+  const out = [];
+  for (const w of ws) {
+    for (const tab of w.tabs ?? []) {
+      const a = agentOfTab(w, tab);
+      const at = a?.lastActivityAt ?? 0;
+      if (!at || t - at > RECENT) continue;
+      out.push(tabEntry(w, tab, at));
+    }
+  }
+  return out.sort((x, y) => y.at - x.at);
 }
 
-// 그룹 무시하고 최근 작업 순. 고정한 프로젝트는 맨 위, 시각이 같으면 cmux 순서
-function recentEntries(ws) {
-  return ws
-    .slice()
-    .sort((x, y) => (y.pinned ? 1 : 0) - (x.pinned ? 1 : 0) || activityAt(y) - activityAt(x) || x.index - y.index);
+// 검색: 프로젝트가 아니라 탭 제목으로 찾는다. 결과도 최근순과 같은 모양의 탭 줄이다.
+// (조용한 탭도 나와야 하므로 최근순과 달리 나이는 안 따진다)
+function searchTabs(ws, q) {
+  const out = [];
+  for (const w of ws) {
+    for (const tab of w.tabs ?? []) {
+      if (!tabLabel(w, tab).toLowerCase().includes(q)) continue;
+      out.push(tabEntry(w, tab, agentOfTab(w, tab)?.lastActivityAt ?? 0));
+    }
+  }
+  return out.sort((x, y) => y.at - x.at);
+}
+
+function tabEntry(w, tab, at) {
+  return { id: "rt:" + w.id + ":" + tab.id, kind: "recent", wsId: w.id, tabId: tab.id, at };
 }
 
 // 워크스페이스 배열 → 그룹 머리글 + 멤버 줄
@@ -200,27 +222,30 @@ function projectEntries(ws) {
   return [...pinned, ...rest];
 }
 
-// 프로젝트 줄 목록 + 각 프로젝트 바로 아래에 그 프로젝트의 탭 줄
-// 검색·최근순 줄은 키를 달리해서("r:") 못 잡는 줄로 만든다 (끌어 옮기기는 그룹 보기에서만)
+// 그룹의 대표 프로젝트(그룹 터미널)는 어느 목록에도 안 내놓는다.
+// 닫으면 그룹이 통째로 사라져서 고를 일이 없게 한다
+function pickableWs() {
+  const anchors = new Set((data.groups() ?? []).map((g) => g.anchorId));
+  return (data.workspaces() ?? []).filter((w) => !anchors.has(w.id));
+}
+
+// 프로젝트 줄 목록 + 각 프로젝트 바로 아래에 그 프로젝트의 탭 줄.
+// 검색과 최근순은 프로젝트 줄 없이 탭만 세운다
 function projectList() {
   cleanupOldMarks();
   const all = data.workspaces() ?? [];
-  // 그룹의 대표 프로젝트(그룹 터미널)는 검색·최근순 목록에도 안 내놓는다. 닫으면 그룹이 사라져서 고를 일이 없게 한다
-  const anchors = new Set((data.groups() ?? []).map((g) => g.anchorId));
-  const pickable = all.filter((w) => !anchors.has(w.id));
-  const still = (w) => ({ id: "r:" + w.id, kind: "ws", wsId: w.id, inGroup: false, groupId: null, drag: false });
+  const pickable = pickableWs();
 
-  let base;
   const q = query().trim().toLowerCase();
   if (q) {
-    const hits = pickable.filter((w) => (w.title || "").toLowerCase().includes(q));
-    if (!hits.length) return [{ id: "f:nohit", kind: "nohit" }];
-    base = hits.map(still);
-  } else if (sortMode() === "recent") {
-    base = recentEntries(pickable).map(still);
-  } else {
-    base = projectEntries(orderedWs(all));
+    const rows = searchTabs(pickable, q);
+    return rows.length ? rows : [{ id: "f:nohit", kind: "nohit" }];
   }
+  if (sortMode() === "recent") {
+    const rows = recentTabs(pickable);
+    return rows.length ? rows : [{ id: "f:quiet", kind: "quiet" }];
+  }
+  const base = projectEntries(orderedWs(all));
 
   // 프로젝트 줄 뒤에 탭을 끼워 넣는다. 탭 줄은 끌 수 없고, 소속 그룹은 프로젝트 줄을 따른다
   const out = [];
@@ -479,16 +504,15 @@ function header() {
     HStack({ spacing: 6, alignment: "center" }, [
       Image("magnifyingglass").font(11).color("tertiary"),
       TextField("", {
-        placeholder: "프로젝트 검색",
+        placeholder: "탭 검색",
         autofocus: false,
         onEdit: (t) => setQuery(t ?? ""),
-        // Enter 누르면 첫 번째 결과로 이동
+        // Enter 누르면 첫 번째 탭으로 이동
         onSubmit: (t) => {
           const q = (t ?? "").trim().toLowerCase();
           if (!q) return;
-          const anchors = new Set((data.groups() ?? []).map((g) => g.anchorId));
-          const hit = (data.workspaces() ?? []).find((w) => !anchors.has(w.id) && (w.title || "").toLowerCase().includes(q));
-          if (hit) cmux("workspace.select", { workspace_id: hit.id });
+          const hit = searchTabs(pickableWs(), q)[0];
+          if (hit) jumpTab(hit.wsId, hit.tabId);
         },
       }).font(12),
     ])
@@ -527,10 +551,12 @@ function allTabsToggle() {
     tabsTick();
     return (data.workspaces() ?? []).some((w) => (w.tabs ?? []).length > 0 && !tabsClosed.has(w.id));
   };
-  return Text(() => (anyOpen() ? "탭 접기" : "탭 펼치기"))
+  // 최근순에는 프로젝트 줄 자체가 없어서 접을 것도 없다
+  return Text(() => (sortMode() !== "group" ? "" : anyOpen() ? "탭 접기" : "탭 펼치기"))
     .font(11)
     .color("tertiary")
     .onTap(() => {
+      if (sortMode() !== "group") return;
       if (anyOpen()) for (const w of data.workspaces() ?? []) tabsClosed.add(w.id);
       else tabsClosed.clear();
       setTabsTick(tabsTick() + 1);
@@ -538,7 +564,59 @@ function allTabsToggle() {
 }
 
 function noHit() {
-  return Text("맞는 프로젝트가 없어요").font(12).color("tertiary").paddingHorizontal(14).paddingVertical(6).fixed();
+  return Text("맞는 탭이 없어요").font(12).color("tertiary").paddingHorizontal(14).paddingVertical(6).fixed();
+}
+
+function quiet() {
+  return Text("최근에 움직인 탭이 없어요").font(12).color("tertiary").paddingHorizontal(14).paddingVertical(6).fixed();
+}
+
+function stateLabel(s) {
+  return s === "waiting" ? "입력 대기" : s === "work" ? "작업 중" : s === "done" ? "완료" : "";
+}
+
+// 최근순 한 줄: 탭 이름 + 그 아래 어느 프로젝트인지 + 오른쪽에 상태·경과 시간.
+// 위에 프로젝트 줄이 없으므로 소속을 줄 안에서 밝힌다
+function recentRow(e) {
+  const w = () => wsById(e().wsId);
+  const tab = () => (w()?.tabs ?? []).find((t) => t.id === e().tabId) ?? null;
+  const state = () => agentState(w(), agentOfTab(w(), tab()));
+  const active = () => Boolean(w()?.selected && tab()?.focused);
+  const tone = () => (state() ? TONE[state()] : null);
+
+  return HStack({ spacing: 8 }, [
+    VStack({ spacing: 0 }, [
+      HStack({ spacing: 0 }, [
+        Text(() => tabLabel(w(), tab()))
+          .font(13)
+          .lineLimit(1)
+          .truncation("tail")
+          .marquee()
+          .color(() => (active() ? "primary" : "secondary")),
+        Spacer({ minLength: 0 }),
+      ]).frame({ maxWidth: "infinity" }),
+      HStack({ spacing: 5 }, [
+        Circle({ size: 6 }).fill(() => colorOf(w())),
+        Text(() => w()?.title ?? "").font(11).lineLimit(1).truncation("tail").color("tertiary"),
+        Spacer({ minLength: 0 }),
+      ])
+        .paddingTop(2)
+        .frame({ maxWidth: "infinity" }),
+    ]).frame({ maxWidth: "infinity" }),
+    VStack({ spacing: 1, alignment: "trailing" }, [
+      Text(() => stateLabel(state())).font(9).weight("semibold").color(() => tone() ?? "tertiary"),
+      // 검색 결과에는 한 번도 안 돌아본 탭도 섞여 있다. 활동 기록이 없으면 시간은 비워둔다
+      Text(() => (e().at ? ago(now() - e().at) : "")).font(10).color(() => tone() ?? "tertiary").opacity(0.85),
+    ]).fixed(),
+  ])
+    .paddingHorizontal(10)
+    .paddingVertical(5)
+    .cornerRadius(8)
+    .background(() => (active() ? "#7f7f7f3d" : null))
+    .hoverBackground(() => (active() ? "#7f7f7f3d" : "#7f7f7f24"))
+    .frame({ maxWidth: "infinity" })
+    .fixed()
+    .onTap(() => jumpTab(e().wsId, e().tabId));
 }
 
 // 상태 아이콘. 아이콘을 바꿔 끼우는 대신 세 개를 겹쳐 두고 해당 상태만 보이게 한다
@@ -743,7 +821,9 @@ sidebar(
           const kind = e().kind;
           if (kind === "group") return groupRow(e);
           if (kind === "tab") return tabRow(e);
+          if (kind === "recent") return recentRow(e);
           if (kind === "nohit") return noHit();
+          if (kind === "quiet") return quiet();
           return projectRow(e);
         },
       ),
