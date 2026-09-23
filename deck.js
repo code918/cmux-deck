@@ -163,6 +163,8 @@ function recentTabs(ws) {
       const a = agentOfTab(w, tab);
       const at = a?.lastActivityAt ?? 0;
       if (!at || t - at > RECENT) continue;
+      // /clear 로 비워진 세션은 최근에 움직였어도 볼 게 없다 (상태 아이콘과 같은 기준)
+      if (blankSession(w, a)) continue;
       out.push(tabEntry(w, tab, at));
     }
   }
