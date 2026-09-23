@@ -33,6 +33,17 @@ const STALE = 60 * 60;
 // 최근순에 올릴 탭의 나이 (초). 이보다 오래 조용한 탭은 최근순 목록에서 빠진다
 const RECENT = 24 * 60 * 60;
 
+// 새 탭 종류. [메뉴에 보일 이름, 터미널이 뜨자마자 칠 명령(없으면 빈 셸)]
+// 쓰는 도구가 다르면 여기에 한 줄 더하면 된다 (예: ["새 탭 + 옆집 도구", "tool"])
+const NEW_TABS = [
+  ["새 탭", null],
+  // 명령은 그냥 셸에 쳐 넣는 것이라, 별칭이든 함수든 그 셸이 아는 이름이면 된다
+  ["새 탭 + Claude", "cl"],
+  ["새 탭 + Codex", "codex"],
+];
+// "+" 를 눌렀을 때 만들 탭 (위 목록의 순번). 빈 셸이 기본
+const PLUS_TAB = 0;
+
 const now = () => data.clock()?.epoch ?? 0;
 
 const groupById = (id) => (data.groups() ?? []).find((g) => g.id === id);
@@ -57,10 +68,48 @@ function cleanupOldMarks() {
   }
 }
 
-// ── 프로젝트 검색 / 정렬 ──
-const [query, setQuery] = signal("");
+// ── 검색 / 정렬 ──
+// 검색창이 무엇을 찾는지는 보기에 따라 다르다. 그룹 보기는 프로젝트를, 최근순은 탭을 찾는다.
+// 그룹 보기의 목록은 프로젝트가 줄의 주인이고, 최근순은 탭이 주인이라 각자 그 단위로 거르는 게 맞다
 // "group": 기본 사이드바와 같은 그룹 목록(기본), "recent": 그룹 무시하고 최근 작업 순
 const [sortMode, setSortMode] = signal("group");
+// ── 탭 추가 (어느 프로젝트에 넣을지 고르는 중) ──
+const [picking, setPicking] = signal(false);
+
+// 검색어는 화면마다 따로 둔다. 그룹에서 찾던 프로젝트와 최근순에서 찾던 탭은 서로 다른 것이라,
+// 넘어갔다 돌아왔을 때 치던 말이 남아 있는 편이 낫다
+const queries = { group: "", recent: "", pick: "" };
+const [queryTick, setQueryTick] = signal(0);
+const queryKey = () => (picking() ? "pick" : sortMode());
+
+function query() {
+  queryTick();
+  return queries[queryKey()] ?? "";
+}
+function setQuery(t) {
+  queries[queryKey()] = t ?? "";
+  setQueryTick(queryTick() + 1);
+}
+
+// 입력칸은 한 방향이라 떠 있는 칸의 글자를 우리가 바꿀 수 없다. 대신 뜰 때의 초기값은 줄 수 있어서,
+// 지우기도 되돌리기도 "칸을 새로 띄우기"로 한다 — 이 숫자가 바뀌면 같은 자리라도 새 칸이 된다
+const [fieldTick, setFieldTick] = signal(0);
+function remountField() {
+  setFieldTick(fieldTick() + 1);
+}
+function clearQuery() {
+  setQuery("");
+  remountField();
+}
+
+function startPick() {
+  setPicking(true); // 먼저 고르기로 넘긴 다음 지워야 원래 보기의 검색어가 안 날아간다
+  clearQuery();
+}
+function endPick() {
+  clearQuery();
+  setPicking(false);
+}
 
 // ── 프로젝트별 탭 목록 접기 ──
 // 기본은 펼침. 접은 프로젝트만 기억한다
@@ -137,9 +186,10 @@ function projectState(w) {
 function tabLabel(w, tab) {
   const t = cleanTitle(tab?.title);
   if (!t) return "터미널";
-  if ((t.startsWith("~/") || t.startsWith("/")) && !t.includes(" ")) {
-    return t.split("/").filter(Boolean).pop() || t;
-  }
+  if (t.includes(" ")) return t; // 띄어쓰기가 있으면 첫 프롬프트다. 그대로 둔다
+  // 갓 연 터미널은 셸이 찍는 "사용자@호스트:~/경로" 가 제목이라 앞부분이 다 똑같다. 뒤 경로만 본다
+  const path = t.split(":").pop();
+  if (path.startsWith("~/") || path.startsWith("/")) return path.split("/").filter(Boolean).pop() || t;
   return t;
 }
 
@@ -148,6 +198,48 @@ function tabLabel(w, tab) {
 function jumpTab(wsId, tabId) {
   cmux("workspace.select", { workspace_id: wsId });
   if (tabId) cmux("surface.focus", { workspace_id: wsId, surface_id: tabId });
+}
+
+// 프로젝트 맨 뒤에 탭 하나 더.
+// cmux 는 새 탭을 "지금 보고 있는 탭 바로 오른쪽"에 끼워 넣는다. 그래서 맨 뒤에 붙이려면
+// 그 프로젝트의 마지막 탭을 먼저 띄워두고 만들어야 한다. 프로젝트 → 탭 순서를 지켜야
+// 탭 선택이 먹는다 (jumpTab 과 같은 순서. 프로젝트를 먼저 고르지 않으면 surface.focus 가 무시된다).
+// initial_input 은 새 셸에 그대로 입력되는 값이라, 실행까지 하려면 줄바꿈을 붙여야 한다
+function addTab(wsId, input) {
+  if (!wsId) return;
+  const tabs = wsById(wsId)?.tabs ?? [];
+  const last = tabs[tabs.length - 1];
+  cmux("workspace.select", { workspace_id: wsId });
+  // 두 번 부르는 건 실수가 아니다. 프로젝트를 막 고른 직후엔 cmux 가 "그 프로젝트에서 마지막에 보던 탭"을
+  // 되살리면서 첫 번째 지정을 덮어쓴다. 한 번 더 불러야 우리가 고른 마지막 탭이 남는다
+  if (last) {
+    cmux("surface.focus", { workspace_id: wsId, surface_id: last.id });
+    cmux("surface.focus", { workspace_id: wsId, surface_id: last.id });
+  }
+  const params = { workspace_id: wsId, type: "terminal", focus: true };
+  if (input) params.initial_input = input + "\r";
+  cmux("surface.create", params);
+  // 접어둔 프로젝트에 넣었으면 방금 만든 탭이 보이도록 펴준다
+  if (tabsClosed.delete(wsId)) setTabsTick(tabsTick() + 1);
+  if (picking()) endPick();
+}
+
+// 새 탭 메뉴. ws 는 대상 프로젝트 id 를 돌려주는 함수
+function newTabMenu(ws) {
+  return NEW_TABS.map(([label, input]) => Button(label, () => addTab(ws(), input)));
+}
+
+// 프로젝트를 마지막으로 만진 때. 고르기 목록에서 최근에 쓴 프로젝트를 위로 올리는 데 쓴다
+function lastTouched(w) {
+  let at = w?.latestAt ?? 0;
+  for (const a of w?.agents ?? []) at = Math.max(at, a.lastActivityAt ?? 0);
+  return at;
+}
+
+// 이름으로 프로젝트 거르기. 그룹 보기의 검색과 탭 넣을 곳 고르기가 같이 쓴다
+function matchWs(ws, q) {
+  if (!q) return ws;
+  return ws.filter((w) => String(w.title ?? "").toLowerCase().includes(q));
 }
 
 // ── 목록 만들기 ────────────────────────────────────────────────────────
@@ -231,23 +323,43 @@ function pickableWs() {
   return (data.workspaces() ?? []).filter((w) => !anchors.has(w.id));
 }
 
+// 탭을 넣을 프로젝트 고르기. 이름으로 거르고 최근에 만진 프로젝트를 위에 둔다
+// (아무것도 안 쳤을 때 맨 위 = 방금까지 일하던 프로젝트라 Enter 한 번이면 끝난다)
+function pickTargets(ws, q) {
+  return matchWs(ws, q)
+    .map((w) => ({ id: "p:" + w.id, kind: "pick", wsId: w.id, at: lastTouched(w) }))
+    .sort((a, b) => b.at - a.at);
+}
+
 // 프로젝트 줄 목록 + 각 프로젝트 바로 아래에 그 프로젝트의 탭 줄.
-// 검색과 최근순은 프로젝트 줄 없이 탭만 세운다
+// 최근순과 탭 검색은 프로젝트 줄 없이 탭만 세운다
 function projectList() {
   cleanupOldMarks();
   const all = data.workspaces() ?? [];
   const pickable = pickableWs();
-
   const q = query().trim().toLowerCase();
-  if (q) {
-    const rows = searchTabs(pickable, q);
-    return rows.length ? rows : [{ id: "f:nohit", kind: "nohit" }];
+
+  // 탭 추가 중: 목록이 통째로 "어디에 넣을까" 고르는 화면이 된다
+  if (picking()) {
+    const rows = pickTargets(pickable, q);
+    return rows.length ? rows : [{ id: "f:nopick", kind: "noproj" }];
   }
   if (sortMode() === "recent") {
-    const rows = recentTabs(pickable);
-    return rows.length ? rows : [{ id: "f:quiet", kind: "quiet" }];
+    const rows = q ? searchTabs(pickable, q) : recentTabs(pickable);
+    if (rows.length) return rows;
+    return q ? [{ id: "f:nohit", kind: "nohit" }] : [{ id: "f:quiet", kind: "quiet" }];
   }
-  const base = projectEntries(orderedWs(all));
+  // 그룹 보기에서 검색하면 이름이 맞는 프로젝트만 남긴다. 몇 개 안 남는데 그룹 구역까지
+  // 그리면 머리글이 목록보다 길어지므로, 찾는 동안은 묶음을 걷고 프로젝트 줄만 세운다
+  let base;
+  if (q) {
+    // 키를 "w:" 가 아니라 "s:" 로 두는 건, 줄을 끌 수 있는지가 키마다 한 번만 정해지기 때문이다.
+    // 같은 키를 쓰면 그룹 보기에서 만들어진 "끌 수 있는 줄" 이 검색 결과에도 그대로 나온다
+    base = matchWs(pickable, q).map((w) => ({ id: "s:" + w.id, kind: "ws", wsId: w.id, inGroup: false, groupId: null, drag: false }));
+    if (!base.length) return [{ id: "f:noproj", kind: "noproj" }];
+  } else {
+    base = projectEntries(orderedWs(all));
+  }
 
   // 프로젝트 줄 뒤에 탭을 끼워 넣는다. 탭 줄은 끌 수 없고, 소속 그룹은 프로젝트 줄을 따른다
   const out = [];
@@ -380,7 +492,7 @@ function setGroup(w, groupId) {
 // 경계가 애매한 자리는 extra.side 로 가른다: "below"면 아래 줄과 한 묶음, 아니면 위 줄과 한 묶음.
 // 그룹 머리글을 끌면 그룹이 통째로 움직인다 (extra.block). 공식 예제 workspaces.js 의 규칙을 그대로 따랐다.
 function handleMove(key, index, extra) {
-  if (sortMode() !== "group" || query().trim()) return;
+  if (sortMode() !== "group" || query().trim() || picking()) return;
   const ws = orderedWs(data.workspaces() ?? []);
   const list = projectList();
   const movable = (e) => e.kind === "ws" || e.kind === "group";
@@ -471,6 +583,8 @@ function projectMenu(w) {
     }),
     Button(() => (tabsOpen(w()?.id) ? "탭 목록 접기" : "탭 목록 펼치기"), () => toggleTabs(w()?.id)),
     Divider(),
+    ...newTabMenu(() => w()?.id),
+    Divider(),
     ...(data.groups() ?? []).map((g) =>
       Button(() => "그룹 이동 → " + (groupById(g.id)?.name ?? ""), () => setGroup(w(), g.id)),
     ),
@@ -498,38 +612,45 @@ function groupMenu(groupId) {
 
 // ── 뷰 조각 ────────────────────────────────────────────────────────────
 
+// 조건부 뷰가 없어서 ForEach 로 대신한다. 목록이 비면 안 그리고, 채워지면 새로 mount 된다.
+// 새로 mount 된다는 게 핵심이다 — 입력칸에 커서를 보내는 방법이 따로 없어서,
+// autofocus 를 단 칸은 "이때 뜬다"로만 커서를 받을 수 있다
+// key 는 함수다. 돌려주는 값이 바뀌면 같은 자리라도 "다른 줄"이 되어 새로 mount 된다 (검색어 지우기가 이걸 쓴다)
+function mountIf(on, key, build) {
+  return ForEach({ items: () => (on() ? [key()] : []), key: (k) => k }, () => build());
+}
+
 // 맨 위: 검색 + 정렬 전환 (제목·버전 줄은 자리만 먹어서 뺐다. 버전은 CHANGELOG.md 로 확인한다)
+// 검색칸은 셋 중 하나만 떠 있다. 글자만 바꾸지 않는 건 위의 커서 때문이고,
+// 덤으로 보기를 바꾸면 칸이 새로 떠서 치던 검색어도 같이 비워진다
 function header() {
   return VStack({ spacing: 0 }, [
     Rectangle().fill("#00000000").frame({ height: 8 }),
-    // 검색 박스
-    HStack({ spacing: 6, alignment: "center" }, [
-      Image("magnifyingglass").font(11).color("tertiary"),
-      TextField("", {
-        placeholder: "탭 검색",
-        autofocus: false,
-        onEdit: (t) => setQuery(t ?? ""),
-        // Enter 누르면 첫 번째 탭으로 이동
-        onSubmit: (t) => {
-          const q = (t ?? "").trim().toLowerCase();
-          if (!q) return;
-          const hit = searchTabs(pickableWs(), q)[0];
-          if (hit) jumpTab(hit.wsId, hit.tabId);
-        },
-      }).font(12),
-    ])
-      .paddingHorizontal(10)
-      // 고정 높이는 적용이 안 돼서 위아래 패딩으로 박스를 키운다
-      .paddingVertical(7)
-      .frame({ maxWidth: "infinity", alignment: "leading" })
-      .background("#7f7f7f1f")
-      .cornerRadius(7)
-      .paddingHorizontal(8),
+    mountIf(() => picking(), () => "pick:" + fieldTick(), () =>
+      searchBox("어느 프로젝트에 새 탭?", true, (q) => {
+        const hit = pickTargets(pickableWs(), q)[0];
+        if (hit) addTab(hit.wsId, NEW_TABS[PLUS_TAB][1]);
+      }),
+    ),
+    mountIf(() => !picking() && sortMode() === "group", () => "proj:" + fieldTick(), () =>
+      // Enter 는 맨 위 프로젝트 열기. 프로젝트 줄을 누르면 탭이 접힐 뿐이라 여는 길은 여기와 우클릭뿐이다
+      searchBox("프로젝트 검색", false, (q) => {
+        const hit = matchWs(pickableWs(), q)[0];
+        if (hit) cmux("workspace.select", { workspace_id: hit.id });
+      }),
+    ),
+    mountIf(() => !picking() && sortMode() === "recent", () => "tab:" + fieldTick(), () =>
+      searchBox("탭 검색", false, (q) => {
+        const hit = searchTabs(pickableWs(), q)[0];
+        if (hit) jumpTab(hit.wsId, hit.tabId);
+      }),
+    ),
     // 정렬 전환: 그룹 / 최근순
     HStack({ spacing: 10 }, [
       sortTab("그룹", "group"),
       sortTab("최근순", "recent"),
       Spacer({ minLength: 0 }),
+      newTabButton(),
       allTabsToggle(),
     ])
       .paddingHorizontal(14)
@@ -539,13 +660,74 @@ function header() {
   ]);
 }
 
+// submit 에는 다듬은 검색어가 들어온다 (빈 문자열이면 아무것도 안 한다).
+// 첫 값으로 그 화면이 기억하고 있던 검색어를 넣는다 — 칸이 뜰 때 한 번만 읽히므로,
+// 다른 보기에 갔다 돌아오면 치던 말이 그대로 다시 보인다
+function searchBox(placeholder, autofocus, submit) {
+  return HStack({ spacing: 6, alignment: "center" }, [
+    Image("magnifyingglass").font(11).color("tertiary"),
+    TextField(query(), {
+      placeholder: placeholder,
+      autofocus: autofocus,
+      onEdit: (t) => setQuery(t ?? ""),
+      onSubmit: (t) => {
+        const q = (t ?? "").trim().toLowerCase();
+        // 고르는 중엔 빈 칸으로 Enter 를 쳐도 맨 위(= 방금까지 쓰던 프로젝트)로 간다
+        if (q || picking()) submit(q);
+      },
+      // Esc: 고르는 중이면 그만두고, 검색 중이면 검색어를 지운다
+      onCancel: () => (picking() ? endPick() : clearQuery()),
+    }).font(12),
+    // 검색어 지우기. 친 게 없으면 자리만 지킨다 (나타났다 사라지면 글자 칸이 그만큼 흔들린다)
+    Image("xmark.circle.fill")
+      .font(11)
+      .color("tertiary")
+      .opacity(() => (query() ? 0.75 : 0))
+      .onTap(() => {
+        if (query()) clearQuery();
+      }),
+  ])
+    .paddingLeading(10)
+    // 오른쪽은 좁게. X 는 동그란 기호라 여백을 왼쪽과 똑같이 주면 저 혼자 안쪽으로 밀려 보인다
+    .paddingTrailing(6)
+    // 고정 높이는 적용이 안 돼서 위아래 패딩으로 박스를 키운다
+    .paddingVertical(7)
+    .frame({ maxWidth: "infinity", alignment: "leading" })
+    .background("#7f7f7f1f")
+    .cornerRadius(7)
+    .paddingHorizontal(8);
+}
+
+// 보기를 바꾸면 고르기는 그만둔다. 검색어는 각 보기가 자기 것을 들고 있으므로 건드리지 않는다 —
+// 넘어간 보기의 칸에는 그 보기에서 치던 말이, 돌아오면 다시 이쪽 말이 떠 있다
 function sortTab(label, mode) {
   return Text(label)
     .font(11)
     .weight(() => (sortMode() === mode ? "semibold" : "regular"))
-    .color(() => (sortMode() === mode ? "primary" : "tertiary"))
-    .onTap(() => setSortMode(mode));
+    .color(() => (!picking() && sortMode() === mode ? "primary" : "tertiary"))
+    .onTap(() => {
+      if (picking()) endPick();
+      setSortMode(mode);
+    });
 }
+
+// 새 탭. 누르면 목록이 "어느 프로젝트에 넣을까" 고르는 화면으로 바뀌고, 검색칸에 커서가 간다.
+// 한 번 더 누르면 그만둔다. 우클릭은 고르지 않고 지금 프로젝트에 바로 넣는 길
+function newTabButton() {
+  return Image("plus")
+    .font(10)
+    .weight("semibold")
+    .color(() => (picking() ? "primary" : "tertiary"))
+    .frame({ width: 15, height: 15 })
+    .cornerRadius(8)
+    .background(() => (picking() ? "#7f7f7f4a" : null))
+    .hoverBackground("#7f7f7f4a")
+    .onTap(() => (picking() ? endPick() : startPick()))
+    .contextMenu(newTabMenu(() => currentWs()?.id));
+}
+
+// 지금 보고 있는 프로젝트. "+" 우클릭 메뉴가 쓴다
+const currentWs = () => (data.workspaces() ?? []).find((w) => w.selected) ?? null;
 
 // 탭 목록 전체 접기/펼치기. 하나라도 펼쳐져 있으면 전부 접고, 다 접혀 있으면 전부 편다
 function allTabsToggle() {
@@ -553,8 +735,8 @@ function allTabsToggle() {
     tabsTick();
     return (data.workspaces() ?? []).some((w) => (w.tabs ?? []).length > 0 && !tabsClosed.has(w.id));
   };
-  // 최근순에는 프로젝트 줄 자체가 없어서 접을 것도 없다
-  return Text(() => (sortMode() !== "group" ? "" : anyOpen() ? "탭 접기" : "탭 펼치기"))
+  // 최근순과 고르는 중에는 프로젝트 줄 자체가 없어서 접을 것도 없다
+  return Text(() => (sortMode() !== "group" || picking() ? "" : anyOpen() ? "탭 접기" : "탭 펼치기"))
     .font(11)
     .color("tertiary")
     .onTap(() => {
@@ -571,6 +753,36 @@ function noHit() {
 
 function quiet() {
   return Text("최근에 움직인 탭이 없어요").font(12).color("tertiary").paddingHorizontal(14).paddingVertical(6).fixed();
+}
+
+function noProject() {
+  return Text("맞는 프로젝트가 없어요").font(12).color("tertiary").paddingHorizontal(14).paddingVertical(6).fixed();
+}
+
+// 탭을 넣을 프로젝트 한 줄: 색 점 · 이름 · 지금 탭 수. 누르면 그 프로젝트 맨 뒤에 새 탭이 생긴다.
+// 우클릭하면 Claude·Codex 로 바로 여는 메뉴
+function pickRow(e) {
+  const w = () => wsById(e().wsId);
+  const n = () => (w()?.tabs ?? []).length;
+  return HStack({ spacing: 6 }, [
+    Circle({ size: 7 }).fill(() => colorOf(w())),
+    Text(() => w()?.title ?? "")
+      .font(13)
+      .lineLimit(1)
+      .truncation("tail")
+      .marquee()
+      .color("primary"),
+    Spacer({ minLength: 0 }),
+    Text(() => (n() > 0 ? "탭 " + n() : "탭 없음")).font(10).color("tertiary"),
+  ])
+    .paddingHorizontal(10)
+    .paddingVertical(5)
+    .cornerRadius(8)
+    .hoverBackground("#7f7f7f24")
+    .frame({ maxWidth: "infinity" })
+    .fixed()
+    .onTap(() => addTab(e().wsId, NEW_TABS[PLUS_TAB][1]))
+    .contextMenu(newTabMenu(() => e().wsId));
 }
 
 function stateLabel(s) {
@@ -618,7 +830,9 @@ function recentRow(e) {
     .hoverBackground(() => (active() ? "#7f7f7f3d" : "#7f7f7f24"))
     .frame({ maxWidth: "infinity" })
     .fixed()
-    .onTap(() => jumpTab(e().wsId, e().tabId));
+    .onTap(() => jumpTab(e().wsId, e().tabId))
+    // 검색·최근순에는 프로젝트 줄이 없으니, 같은 프로젝트에 탭을 더할 길을 탭 줄에 둔다
+    .contextMenu(newTabMenu(() => e().wsId));
 }
 
 // 상태 아이콘. 아이콘을 바꿔 끼우는 대신 세 개를 겹쳐 두고 해당 상태만 보이게 한다
@@ -739,14 +953,30 @@ function projectRow(e) {
       .color("tertiary"),
     stateIcon(w),
     unreadBadge(w),
-    // 화살표는 오른쪽 끝에. 왼쪽에 두면 이름과 그 아래 탭 이름이 그만큼 밀린다
-    Image("chevron.right")
-      .font(8)
-      .weight("semibold")
-      .color("tertiary")
-      .rotation(() => (tabsOpen(e().wsId) ? 90 : 0))
-      .frame({ width: 10, height: 12 })
-      .opacity(() => (tabCount() > 0 ? 0.6 : 0)),
+    // 오른쪽 끝 한 자리를 둘이 나눠 쓴다: 평소엔 접힘 화살표, 줄에 마우스를 올리면 "+".
+    // 한 자리에 겹쳐 두는 건 폭 때문이다 — 둘을 나란히 두면 그만큼 프로젝트·탭 이름이 잘린다.
+    // 화살표를 왼쪽으로 옮기지 않는 이유도 같다
+    ZStack({}, [
+      Image("chevron.right")
+        .font(8)
+        .weight("semibold")
+        .color("tertiary")
+        .rotation(() => (tabsOpen(e().wsId) ? 90 : 0))
+        .frame({ width: 10, height: 12 })
+        .opacity(() => (tabCount() > 0 ? 0.6 : 0))
+        .hideOnHover(),
+      // 우클릭하면 Claude·Codex 로 바로 여는 메뉴. 줄 자체의 우클릭 메뉴에도 같은 항목이 있다
+      Image("plus")
+        .font(10)
+        .weight("semibold")
+        .color("secondary")
+        .frame({ width: 15, height: 15 })
+        .cornerRadius(8)
+        .hoverBackground("#7f7f7f4a")
+        .showOnHover()
+        .onTap(() => addTab(e().wsId, NEW_TABS[PLUS_TAB][1]))
+        .contextMenu(newTabMenu(() => e().wsId)),
+    ]),
   ])
     .paddingLeading(8)
     .paddingTrailing(8)
@@ -808,7 +1038,9 @@ function tabRow(e) {
     .hoverBackground(() => (active() ? "#7f7f7f3d" : "#7f7f7f1c"))
     .frame({ maxWidth: "infinity" })
     .fixed()
-    .onTap(() => jumpTab(e().wsId, e().tabId));
+    .onTap(() => jumpTab(e().wsId, e().tabId))
+    // 이 탭이 속한 프로젝트에 탭 하나 더 (프로젝트 줄까지 올라가지 않아도 되게)
+    .contextMenu(newTabMenu(() => e().wsId));
 }
 
 // ── 루트 ───────────────────────────────────────────────────────────────
@@ -824,7 +1056,9 @@ sidebar(
           if (kind === "group") return groupRow(e);
           if (kind === "tab") return tabRow(e);
           if (kind === "recent") return recentRow(e);
+          if (kind === "pick") return pickRow(e);
           if (kind === "nohit") return noHit();
+          if (kind === "noproj") return noProject();
           if (kind === "quiet") return quiet();
           return projectRow(e);
         },
