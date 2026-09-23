@@ -126,6 +126,30 @@ function toggleTabs(wsId) {
   setTabsTick(tabsTick() + 1);
 }
 
+// ── 봤다고 치우기 ──
+// cmux 신호만으로는 안 내려가는 줄이 있다. 대표적으로 /clear 한 세션 — cmux 는 이걸 활동으로 치지 않아서
+// 제목도 상태도 하던 일 그대로 남고, 방금 끝난 것처럼 "완료 · 방금"으로 올라온다.
+// 제목으로 가려내는 건 한계가 있어서(blankSession), 손으로 내리는 길을 둔다.
+// 내린 시각의 활동 시각을 적어두고, 그 탭이 다시 움직이면 알아서 돌아온다.
+// 사이드바엔 저장소가 없어서 cmux 를 껐다 켜면 풀린다
+const dismissed = new Map(); // 탭 id -> 내릴 때의 lastActivityAt
+const [dismissTick, setDismissTick] = signal(0);
+
+function isDismissed(a) {
+  dismissTick();
+  if (!a) return false;
+  const at = dismissed.get(a.panelId ?? a.id);
+  return at !== undefined && (a.lastActivityAt ?? 0) <= at;
+}
+
+function dismissTab(wsId, tabId) {
+  const w = wsById(wsId);
+  const a = agentOfTab(w, (w?.tabs ?? []).find((t) => t.id === tabId));
+  if (!a) return;
+  dismissed.set(a.panelId ?? a.id, a.lastActivityAt ?? now());
+  setDismissTick(dismissTick() + 1);
+}
+
 // ── 탭 ──
 
 // 첫 프롬프트가 제목일 때가 많아서 한 줄로 정리한다
@@ -157,6 +181,8 @@ function blankSession(w, a) {
 // 세션 하나의 상태: 입력 대기 / 작업 중 / 방금 끝남 / (없음)
 function agentState(w, a) {
   if (!w || !a) return null;
+  // 손으로 내린 줄은 다시 움직이기 전까지 상태 없음. 점도 프로젝트 아이콘도 같이 가라앉는다
+  if (isDismissed(a)) return null;
   if (a.status === "working") return "work";
   if (a.status === "needs_input") {
     if (blankSession(w, a)) return null;
@@ -257,6 +283,8 @@ function recentTabs(ws) {
       if (!at || t - at > RECENT) continue;
       // /clear 로 비워진 세션은 최근에 움직였어도 볼 게 없다 (상태 아이콘과 같은 기준)
       if (blankSession(w, a)) continue;
+      // 손으로 내린 줄도 뺀다. 검색에는 그대로 나온다 — 찾아서 왔으면 보여주는 게 맞다
+      if (isDismissed(a)) continue;
       out.push(tabEntry(w, tab, at));
     }
   }
@@ -817,10 +845,25 @@ function recentRow(e) {
         .paddingTop(2)
         .frame({ maxWidth: "infinity" }),
     ]).frame({ maxWidth: "infinity" }),
-    VStack({ spacing: 1, alignment: "trailing" }, [
-      Text(() => stateLabel(state())).font(9).weight("semibold").color(() => tone() ?? "tertiary"),
-      // 검색 결과에는 한 번도 안 돌아본 탭도 섞여 있다. 활동 기록이 없으면 시간은 비워둔다
-      Text(() => (e().at ? ago(now() - e().at) : "")).font(10).color(() => tone() ?? "tertiary").opacity(0.85),
+    // 상태·시간 자리를 X 와 나눠 쓴다. 마우스를 올리면 X 로 바뀌므로 줄 폭은 그대로다.
+    // 오른쪽 정렬로 두는 건, 이 자리의 폭은 "입력 대기" 같은 긴 글자가 정하기 때문이다 —
+    // 가운데 두면 X 혼자 글자 한복판까지 밀려 들어온다
+    ZStack({ alignment: "trailing" }, [
+      VStack({ spacing: 1, alignment: "trailing" }, [
+        Text(() => stateLabel(state())).font(9).weight("semibold").color(() => tone() ?? "tertiary"),
+        // 검색 결과에는 한 번도 안 돌아본 탭도 섞여 있다. 활동 기록이 없으면 시간은 비워둔다
+        Text(() => (e().at ? ago(now() - e().at) : "")).font(10).color(() => tone() ?? "tertiary").opacity(0.85),
+      ]).hideOnHover(),
+      // 목록에서 내리기. 탭을 닫는 게 아니라 "봤다" 표시다 — 다시 움직이면 알아서 돌아온다
+      Image("xmark")
+        .font(9)
+        .weight("semibold")
+        .color("secondary")
+        .padding(3)
+        .cornerRadius(9)
+        .hoverBackground("#7f7f7f4a")
+        .showOnHover()
+        .onTap(() => dismissTab(e().wsId, e().tabId)),
     ]).fixed(),
   ])
     .paddingHorizontal(10)
@@ -831,8 +874,13 @@ function recentRow(e) {
     .frame({ maxWidth: "infinity" })
     .fixed()
     .onTap(() => jumpTab(e().wsId, e().tabId))
-    // 검색·최근순에는 프로젝트 줄이 없으니, 같은 프로젝트에 탭을 더할 길을 탭 줄에 둔다
-    .contextMenu(newTabMenu(() => e().wsId));
+    .contextMenu([
+      Button("목록에서 내리기", () => dismissTab(e().wsId, e().tabId)),
+      Button("탭 닫기", () => cmux("surface.close", { workspace_id: e().wsId, surface_id: e().tabId })).destructive(),
+      Divider(),
+      // 검색·최근순에는 프로젝트 줄이 없으니, 같은 프로젝트에 탭을 더할 길을 탭 줄에 둔다
+      ...newTabMenu(() => e().wsId),
+    ]);
 }
 
 // 상태 아이콘. 아이콘을 바꿔 끼우는 대신 세 개를 겹쳐 두고 해당 상태만 보이게 한다
