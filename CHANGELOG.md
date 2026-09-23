@@ -2,6 +2,20 @@
 
 Versions follow [Semantic Versioning](https://semver.org/). While Deck is 0.x, a minor bump (0.2 → 0.3) may change behavior or labels.
 
+## 0.4.0 — 2026-09-23
+
+### Added
+- **Add a tab from the sidebar, to any project.** The **+** in the sort row turns the whole list into a project picker with the cursor already in the search box: type a few letters, press Enter (or click a row), and a terminal opens at the **end** of that project's tabs, focused. Enter on an empty box takes the top row — the project you were last in — so the common case is two keystrokes. **+** again or Esc backs out.
+- **A + on each project row too.** Hover a project and its collapse chevron turns into a **+**, for when the project is already on screen and you don't want to search for it.
+- **Open the tab straight into an agent.** Right-click the **+**, a project row, a picker row, or any tab row: *새 탭*, *새 탭 + Claude*, *새 탭 + Codex*. The command is typed into the new terminal as it spawns, so the shell stays yours after the agent exits. Edit `NEW_TABS` at the top of `deck.js` to add your own, and `PLUS_TAB` to choose what a plain click on **+** opens.
+
+- **An X to put a row down.** Hover a row in *최근순* (or a tab search result) and its state/elapsed column turns into an **X**: it doesn't close the tab, it marks the row as seen. The row leaves *최근순* and its dot goes quiet — until that tab moves again, at which point it comes back on its own. This is the way out of the case no heuristic catches: a session you `/clear`ed keeps its old title and its "just finished" timestamp, so it sits at the top of the list looking like news. Right-click gives the same thing as *목록에서 내리기*, plus *탭 닫기* for when you did mean to close it. Custom sidebars have no storage, so a cmux restart forgets what you put down.
+- **An X to clear the search.** It shows up in the search box once there is something to clear; Esc does the same.
+
+### Changed
+- **The search box searches whatever the list is made of.** In *그룹* it filters projects (the rows are projects, each with its tabs under it); in *최근순* it filters tab titles, as before. Searching projects drops the group sections for as long as you are typing — with three hits left, the section rules were longer than the list.
+- A tab whose title is still the shell's own (`user@host:~/workspace/kilog`, which is what a tab shows until an agent renames it) is listed by its folder name, like a path title already was.
+
 ## 0.3.0 — 2026-09-22
 
 A different sidebar: instead of ranking sessions across projects, Deck now shows the tab tree — search on top, projects grouped below, and every tab of a project listed right under it. If you keep many tabs open, this is the list you were looking for.
