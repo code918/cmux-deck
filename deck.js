@@ -47,8 +47,44 @@ const PLAIN_TAB = 0;
 
 const now = () => data.clock()?.epoch ?? 0;
 
+// ── 찾아보기 표 ──
+// 줄 하나를 그릴 때마다 프로젝트를 배열 처음부터 훑으면, 줄 수 × 프로젝트 수만큼 비교가 매 초 돈다
+// (프로젝트 47개 · 탭 73개면 초당 몇 만 번이다). 그래서 cmux 가 새 데이터를 줄 때 한 번만 표를 만들고
+// 그 뒤로는 표에서 바로 꺼낸다. 데이터가 바뀌면 배열 자체가 새것이 되므로 그걸로 새로 만들 때를 안다.
+// (표를 만드는 김에 탭↔세션, 제목 다듬기 결과까지 같이 담는다 — 셋 다 같은 주기로 낡는다)
+let idx = { ws: null, agents: null, tabs: null, titles: null, src: null };
+
+function index() {
+  const all = data.workspaces() ?? [];
+  if (idx.src === all) return idx;
+  const ws = new Map();
+  const agents = new Map();
+  const tabs = new Map();
+  for (const w of all) {
+    ws.set(w.id, w);
+    for (const a of w.agents ?? []) {
+      // 세션은 탭의 id(panelId) 나 surfaceId 로 달려 있다. 둘 다 열쇠로 넣어둔다.
+      // 한 탭에 세션이 여러 개 쌓여 있을 수 있는데 cmux 는 최신 것을 앞에 준다.
+      // 그래서 먼저 온 것만 담는다 — 덮어쓰면 제일 오래된 세션이 남아서 "8일 전" 같은 시각이 뜬다
+      const k1 = w.id + "|" + a.panelId;
+      const k2 = w.id + "|s|" + a.surfaceId;
+      if (a.panelId != null && !agents.has(k1)) agents.set(k1, a);
+      if (a.surfaceId != null && !agents.has(k2)) agents.set(k2, a);
+    }
+    for (const t of w.tabs ?? []) {
+      tabs.set(w.id + "|" + t.id, t);
+      if (t.surfaceId != null) tabs.set(w.id + "|s|" + t.surfaceId, t);
+    }
+  }
+  idx = { ws, agents, tabs, titles: new Map(), src: all };
+  return idx;
+}
+
+// 탭 하나 꺼내기 (줄마다 매 초 부르므로 표에서 바로 찾는다)
+const tabById = (wsId, tabId) => index().tabs.get(wsId + "|" + tabId) ?? null;
+
 const groupById = (id) => (data.groups() ?? []).find((g) => g.id === id);
-const wsById = (id) => (data.workspaces() ?? []).find((w) => w.id === id);
+const wsById = (id) => index().ws.get(id);
 
 // ── 0.2 잔재 정리 ──
 // 예전 버전은 "나중에 확인 / 확인함" 표시를 프로젝트 설명 칸 끝에 적어뒀다.
@@ -181,7 +217,7 @@ function isDismissed(a) {
 
 function dismissTab(wsId, tabId) {
   const w = wsById(wsId);
-  const a = agentOfTab(w, (w?.tabs ?? []).find((t) => t.id === tabId));
+  const a = agentOfTab(w, tabById(wsId, tabId));
   if (!a) return;
   dismissed.set(a.panelId ?? a.id, a.lastActivityAt ?? now());
   setDismissTick(dismissTick() + 1);
@@ -191,17 +227,33 @@ function dismissTab(wsId, tabId) {
 
 // 첫 프롬프트가 제목일 때가 많아서 한 줄로 정리한다
 function cleanTitle(s) {
+  const raw = String(s || "");
+  if (!raw) return "";
+  // 제목은 잘 안 바뀌는데 이 정규식은 줄마다 매 초 돈다. 같은 데이터 동안은 한 번만 계산한다
+  const memo = index().titles;
+  const hit = memo.get(raw);
+  if (hit !== undefined) return hit;
   // 작업 중일 때 제목 앞에 붙는 회전 표시(✳ ◐ ◓ 점자 스피너 등)를 떼어낸다
-  return String(s || "")
+  const out = raw
     .replace(/^[✱-✿○-◓⠂-⣿·*\s]+/, "")
     .replace(/\s+/g, " ")
     .trim();
+  memo.set(raw, out);
+  return out;
 }
 
-// 탭에 물려 있는 세션. cmux 는 탭의 id 를 세션의 panelId 로 들고 있다
+// 탭에 물려 있는 세션. cmux 는 탭의 id 를 세션의 panelId 로 들고 있다 (위 찾아보기 표 참고)
 function agentOfTab(w, tab) {
   if (!w || !tab) return null;
-  return (w.agents ?? []).find((a) => a.panelId === tab.id || (a.surfaceId && a.surfaceId === tab.surfaceId)) ?? null;
+  const m = index().agents;
+  return m.get(w.id + "|" + tab.id) ?? (tab.surfaceId != null ? m.get(w.id + "|s|" + tab.surfaceId) : null) ?? null;
+}
+
+// 세션이 올라타 있는 탭
+function tabOfAgent(w, a) {
+  if (!w || !a) return null;
+  const m = index().tabs;
+  return (a.panelId != null ? m.get(w.id + "|" + a.panelId) : null) ?? (a.surfaceId != null ? m.get(w.id + "|s|" + a.surfaceId) : null) ?? null;
 }
 
 // /clear 로 비워진 세션인지. cmux 는 이 상태도 "입력 대기"로 넘기기 때문에 제목으로 가른다
@@ -212,8 +264,7 @@ function blankSession(w, a) {
   // 그래서 "제목이 없다"만으로는 안 보고, 조용해진 뒤에야 빈 세션으로 친다
   if (a.status === "working") return false;
   if (now() - (a.lastActivityAt ?? 0) < FRESH) return false;
-  const tab = (w.tabs ?? []).find((x) => x.id === a.panelId || x.surfaceId === a.surfaceId);
-  const t = cleanTitle(tab?.title);
+  const t = cleanTitle(tabOfAgent(w, a)?.title);
   if (!t) return true;
   const dir = String(w.directory || "").split("/").filter(Boolean).pop();
   return t === w.title || t === dir || t === "Claude Code" || t === "Claude";
@@ -238,13 +289,23 @@ function agentState(w, a) {
 // 프로젝트 전체 상태: 세션 중 가장 급한 것 하나 (입력 대기 > 작업 중 > 완료)
 function projectState(w) {
   if (!w) return null;
+  // 아이콘 셋이 각자 부르므로 같은 계산이 세 번 돈다. 데이터·시각·내려놓기가 그대로면 한 번만 한다
+  const ix = index();
+  if (!ix.states) ix.states = new Map();
+  const key = w.id + "|" + now() + "|" + dismissTick();
+  const memo = ix.states.get(key);
+  if (memo !== undefined) return memo;
   let st = null;
   for (const a of w.agents ?? []) {
     const s = agentState(w, a);
-    if (s === "waiting") return "waiting";
+    if (s === "waiting") {
+      st = "waiting";
+      break; // 가장 급한 상태라 더 볼 것 없다
+    }
     if (s === "work") st = "work";
     else if (s === "done" && st !== "work") st = "done";
   }
+  ix.states.set(key, st);
   return st;
 }
 
@@ -903,7 +964,7 @@ function stateLabel(s) {
 // 위에 프로젝트 줄이 없으므로 소속을 줄 안에서 밝힌다
 function recentRow(e) {
   const w = () => wsById(e().wsId);
-  const tab = () => (w()?.tabs ?? []).find((t) => t.id === e().tabId) ?? null;
+  const tab = () => tabById(e().wsId, e().tabId);
   const state = () => agentState(w(), agentOfTab(w(), tab()));
   const active = () => Boolean(w()?.selected && tab()?.focused);
   const tone = () => (state() ? TONE[state()] : null);
@@ -1156,7 +1217,7 @@ function newTabRow(e) {
 // 프로젝트 줄보다 한 단 더 들여쓰고 글자도 작게 해서 소속이 눈에 들어오게 한다
 function tabRow(e) {
   const w = () => wsById(e().wsId);
-  const tab = () => (w()?.tabs ?? []).find((t) => t.id === e().tabId) ?? null;
+  const tab = () => tabById(e().wsId, e().tabId);
   const agent = () => agentOfTab(w(), tab());
   const state = () => agentState(w(), agent());
   const active = () => Boolean(w()?.selected && tab()?.focused);
