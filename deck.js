@@ -26,7 +26,7 @@ const TONE = {
 // 끝난 세션을 "완료"로 보여주는 시간 (초). cmux 재시작 때 활동 시각이 한꺼번에 찍혀서 길게 잡으면 전부 올라온다
 const FRESH = 3 * 60;
 // 입력 대기 신호를 "지금 내 차례"로 볼 시간 (초).
-// Claude Code 는 일이 끝난 뒤에도 입력 대기 신호를 남겨 두고, cmux 는 /clear 를 활동으로 치지 않는다.
+// Claude Code 는 일이 끝난 뒤에도 입력 대기 신호를 남겨 둔다.
 // 그래서 어제 쓰고 놔둔 탭까지 전부 "입력 대기 · 1일"로 올라온다 — 정작 지금 급한 건 하나도 없는데.
 // 이 시간이 지난 입력 대기는 상태 없음(회색)으로 내린다. 급하면 짧게, 자리를 오래 비우면 길게 잡는다
 const STALE = 60 * 60;
@@ -200,9 +200,8 @@ function toggleTabs(wsId) {
 }
 
 // ── 봤다고 치우기 ──
-// cmux 신호만으로는 안 내려가는 줄이 있다. 대표적으로 /clear 한 세션 — cmux 는 이걸 활동으로 치지 않아서
-// 제목도 상태도 하던 일 그대로 남고, 방금 끝난 것처럼 "완료 · 방금"으로 올라온다.
-// 제목으로 가려내는 건 한계가 있어서(blankSession), 손으로 내리는 길을 둔다.
+// 목록에서 내리는 건 전부 손으로 한다. 제목으로 "비워진 세션"을 알아맞히던 코드가 있었는데,
+// 멀쩡히 쓰는 탭까지 같이 숨겨서(제목이 안 붙은 세션은 구분이 안 된다) 걷어냈다.
 // 내린 시각의 활동 시각을 적어두고, 그 탭이 다시 움직이면 알아서 돌아온다.
 // 사이드바엔 저장소가 없어서 cmux 를 껐다 켜면 풀린다
 const dismissed = new Map(); // 탭 id -> 내릴 때의 lastActivityAt
@@ -249,27 +248,6 @@ function agentOfTab(w, tab) {
   return m.get(w.id + "|" + tab.id) ?? (tab.surfaceId != null ? m.get(w.id + "|s|" + tab.surfaceId) : null) ?? null;
 }
 
-// 세션이 올라타 있는 탭
-function tabOfAgent(w, a) {
-  if (!w || !a) return null;
-  const m = index().tabs;
-  return (a.panelId != null ? m.get(w.id + "|" + a.panelId) : null) ?? (a.surfaceId != null ? m.get(w.id + "|s|" + a.surfaceId) : null) ?? null;
-}
-
-// /clear 로 비워진 세션인지. cmux 는 이 상태도 "입력 대기"로 넘기기 때문에 제목으로 가른다
-// (첫 프롬프트가 없고, 탭 제목도 에이전트가 붙인 제목이 아니라 프로젝트·폴더 이름으로 돌아와 있다)
-function blankSession(w, a) {
-  if (a.title) return false;
-  // 단, /clear 한 뒤에도 계속 쓰고 있는 탭이 여기 걸린다 — 제목은 안 붙었는데 멀쩡히 일하는 중이다.
-  // 그래서 "제목이 없다"만으로는 안 보고, 조용해진 뒤에야 빈 세션으로 친다
-  if (a.status === "working") return false;
-  if (now() - (a.lastActivityAt ?? 0) < FRESH) return false;
-  const t = cleanTitle(tabOfAgent(w, a)?.title);
-  if (!t) return true;
-  const dir = String(w.directory || "").split("/").filter(Boolean).pop();
-  return t === w.title || t === dir || t === "Claude Code" || t === "Claude";
-}
-
 // 세션 하나의 상태: 입력 대기 / 작업 중 / 방금 끝남 / (없음)
 function agentState(w, a) {
   if (!w || !a) return null;
@@ -277,7 +255,6 @@ function agentState(w, a) {
   if (isDismissed(a)) return null;
   if (a.status === "working") return "work";
   if (a.status === "needs_input") {
-    if (blankSession(w, a)) return null;
     // 오래 묵은 입력 대기는 내린다 (위 STALE 설명 참고)
     const at = a.sinceEpoch ?? a.lastActivityAt ?? 0;
     return at && now() - at < STALE ? "waiting" : null;
@@ -443,12 +420,13 @@ function recentTabs(ws) {
   for (const w of ws) {
     for (const tab of w.tabs ?? []) {
       const a = agentOfTab(w, tab);
-      const at = a?.lastActivityAt ?? 0;
-      if (!at || t - at > RECENT) continue;
-      // /clear 로 비워진 세션은 최근에 움직였어도 볼 게 없다 (상태 아이콘과 같은 기준)
-      if (blankSession(w, a)) continue;
-      // 손으로 내린 줄도 뺀다. 검색에는 그대로 나온다 — 찾아서 왔으면 보여주는 게 맞다
+      // 세션이 물려 있는 탭만 올린다. 그냥 셸은 "최근에 뭘 했는지"와 상관이 없다
+      if (!a) continue;
+      // 손으로 내린 줄은 뺀다. 검색에는 그대로 나온다 — 찾아서 왔으면 보여주는 게 맞다
       if (isDismissed(a)) continue;
+      // 세션이 활동 시각을 안 들고 있는 경우가 있다 (오래 붙어 있던 세션 등). 프로젝트 것으로 대신한다
+      const at = a.lastActivityAt ?? w.latestAt ?? 0;
+      if (at && t - at > RECENT) continue;
       out.push(tabEntry(w, tab, at));
     }
   }
