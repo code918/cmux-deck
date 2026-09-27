@@ -367,10 +367,69 @@ function lastTouched(w) {
   return at;
 }
 
+// ── 한/영 잘못 치고 검색하기 ──
+// "gopte" 를 한글 상태로 치면 "ㅎㅐㅔㅅㄷ" 같은 게, "운며들다" 를 영문 상태로 치면 "dnsaudemfek" 이 된다.
+// 양쪽 다 잡으려고, 찾는 말과 찾을 말을 모두 "두벌식 자판에서 누른 키" 로 펴서 견준다.
+// 한글을 키로 펴는 한 방향만 있으면 된다 — 영문은 이미 키 그대로라서 서로 만난다
+const CHO = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ";
+const JUNG = "ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ";
+const JONG = " ㄱㄲㄳㄴㄵㄶㄷㄹㄺㄻㄼㄽㄾㄿㅀㅁㅂㅄㅅㅆㅇㅈㅊㅋㅌㅍㅎ";
+// 자모 → 그 자모가 있는 자판 키. 된소리(ㅃ)는 시프트라 밑 글자와 같은 키고,
+// 겹자모(ㅘ, ㄺ)는 두 번 눌러 만든 것이라 두 키로 편다
+const KEYMAP = {
+  ㅂ: "q", ㅈ: "w", ㄷ: "e", ㄱ: "r", ㅅ: "t", ㅛ: "y", ㅕ: "u", ㅑ: "i", ㅐ: "o", ㅔ: "p",
+  ㅁ: "a", ㄴ: "s", ㅇ: "d", ㄹ: "f", ㅎ: "g", ㅗ: "h", ㅓ: "j", ㅏ: "k", ㅣ: "l",
+  ㅋ: "z", ㅌ: "x", ㅊ: "c", ㅍ: "v", ㅠ: "b", ㅜ: "n", ㅡ: "m",
+  ㅃ: "q", ㅉ: "w", ㄸ: "e", ㄲ: "r", ㅆ: "t", ㅒ: "o", ㅖ: "p",
+  ㅘ: "hk", ㅙ: "ho", ㅚ: "hl", ㅝ: "nj", ㅞ: "np", ㅟ: "nl", ㅢ: "ml",
+  ㄳ: "rt", ㄵ: "sw", ㄶ: "sg", ㄺ: "fr", ㄻ: "fa", ㄼ: "fq", ㄽ: "ft", ㄾ: "fx", ㄿ: "fv", ㅀ: "fg", ㅄ: "qt",
+};
+
+function toKeys(s) {
+  const raw = String(s ?? "");
+  let out = "";
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    const c = raw.charCodeAt(i);
+    if (c >= 0xac00 && c <= 0xd7a3) {
+      // 완성된 글자는 초·중·종성으로 뜯는다
+      const n = c - 0xac00;
+      out += KEYMAP[CHO[Math.floor(n / 588)]] ?? "";
+      out += KEYMAP[JUNG[Math.floor((n % 588) / 28)]] ?? "";
+      const j = n % 28;
+      if (j) out += KEYMAP[JONG[j]] ?? "";
+    } else {
+      // 아직 안 뭉쳐진 낱자모(ㅎ, ㅐ …)는 표에서 바로, 나머지는 그대로
+      out += KEYMAP[ch] ?? ch.toLowerCase();
+    }
+  }
+  return out;
+}
+
+// 제목은 잘 안 바뀌므로 펴놓은 결과를 데이터가 바뀔 때까지 들고 있는다
+function keysOf(s) {
+  const raw = String(s ?? "");
+  const ix = index();
+  if (!ix.keys) ix.keys = new Map();
+  const hit = ix.keys.get(raw);
+  if (hit !== undefined) return hit;
+  const out = toKeys(raw);
+  ix.keys.set(raw, out);
+  return out;
+}
+
+// text 가 검색어에 걸리는지. q 는 소문자로 다듬은 검색어, qk 는 그걸 자판 키로 편 것
+function hits(text, q, qk) {
+  const t = String(text ?? "").toLowerCase();
+  if (t.includes(q)) return true;
+  return keysOf(t).includes(qk);
+}
+
 // 이름으로 프로젝트 거르기. 검색과 탭 넣을 곳 고르기가 같이 쓴다
 function matchWs(ws, q) {
   if (!q) return ws;
-  return ws.filter((w) => String(w.title ?? "").toLowerCase().includes(q));
+  const qk = toKeys(q);
+  return ws.filter((w) => hits(w.title, q, qk));
 }
 
 // ── 목록 만들기 ────────────────────────────────────────────────────────
@@ -400,9 +459,10 @@ function recentTabs(ws) {
 // (조용한 탭도 나와야 하므로 최근순과 달리 나이는 안 따진다)
 function searchTabs(ws, q) {
   const out = [];
+  const qk = toKeys(q);
   for (const w of ws) {
     for (const tab of w.tabs ?? []) {
-      if (!tabLabel(w, tab).toLowerCase().includes(q)) continue;
+      if (!hits(tabLabel(w, tab), q, qk)) continue;
       out.push(tabEntry(w, tab, agentOfTab(w, tab)?.lastActivityAt ?? 0));
     }
   }
