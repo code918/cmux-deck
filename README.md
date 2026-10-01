@@ -11,7 +11,7 @@ If you run several Claude Code / Codex sessions per project, the tab bar stops b
 ## Features
 
 - **Tabs under each project.** Every open tab is a row under its project, in tab order, showing the tab title. The dot on the left is that tab's session state — orange: waiting for input, blue: working, green: just finished, grey: nothing running — and the time on the right is how long it has been in that state. Click a row to jump straight to that tab.
-- **Add a tab to any project, from the keyboard.** The **+** in the sort row turns the list into a project picker with the cursor already in the search box: type a few letters, press Enter, and a Claude terminal opens at the end of that project's tabs, focused. Option-click the **+** for a plain shell instead; the box tells you which one you are placing. Enter on an empty box takes the top row, which is the project you were last in. Hovering a project row also turns its chevron into a **+**; that one opens a short list under the row — *새 탭* or *새 탭 + Claude* — for when the project is already on screen and you just want to pick a kind. Right-click a project row, a picker row or a tab row for the same two.
+- **Add a tab to any project, from the keyboard.** The **+** in the sort row turns the list into a project picker with the cursor already in the search box: type a few letters, press Enter, and a Claude terminal opens at the end of that project's tabs, focused. Right-click the **+** for a plain shell instead. Enter on an empty box takes the top row, which is the project you were last in. Hovering a project row also turns its chevron into a **+**, which opens the same kind of tab in that project straight away. Right-click any **+**, project row, picker row or tab row to pick the other kind instead.
 - **Click a project to fold its tabs.** A project row doesn't open the project — it folds its tabs away and shows the tab count instead, the same as a group header. Jumping is what the tab rows are for. To open a project directly (say, one with no tabs), right-click → *이 프로젝트 열기*. *탭 접기* / *탭 펼치기* on the right of the sort row folds or unfolds every project at once.
 - **Groups read as sections.** A thin rule and a small bold name, no indent — so the project and tab names below get the full width. A collapsed group shows its project count, the most urgent state inside it, and the unread total.
 - **Project list.** The built-in grouping by default, with collapse and pin order, or recent-activity order. Each project shows a state icon (⚡ working, ! waiting, ✓ done) and the unread badge.
@@ -49,7 +49,7 @@ Edit the constants at the top of `deck.js`. cmux hot-reloads the file on save.
 | `FRESH` | `180` | Seconds a finished session keeps its green "done" dot |
 | `STALE` | `3600` | Seconds a "waiting for input" signal counts as urgent. Past this the tab goes quiet — see below |
 | `RECENT` | `2592000` (30일) | Seconds a tab stays listed in *최근순*. Search is not affected |
-| `PLUS_TAB` / `PLAIN_TAB` | `1` / `0` | Which `NEW_TABS` entry the sort-row **+** opens, and which one option-click opens |
+| `PLUS_TAB` | `1` | Which `NEW_TABS` entry a **+** click opens; the rest are in its right-click menu |
 | `NEW_TABS` | `null` / `cl` | What the new-tab menu offers: a label and the command typed into the new terminal (`null` for a plain shell). It is typed into your own interactive shell, so aliases and functions work — `cl` is the author's alias for `claude`. Change it to whatever starts yours |
 | `TONE` | | Colors for each state |
 
@@ -84,7 +84,7 @@ The group list and collapse logic is based on the official cmux example `Example
 cmux 왼쪽 사이드바를 **프로젝트 + 탭 목록**으로 바꿔주는 커스텀 사이드바예요. 탭을 많이 열어두면 탭 바만 봐서는 뭐가 뭔지 모르는데, 프로젝트 아래에 그 프로젝트의 탭을 쭉 펼쳐서 한눈에 고를 수 있게 해줘요.
 
 - **프로젝트 아래에 탭**: 열려 있는 탭을 순서대로 한 줄씩. 왼쪽 점이 그 탭의 상태(주황=입력 대기, 파랑=작업 중, 초록=방금 끝남, 회색=조용함)고, 오른쪽은 그 상태로 있은 시간. 누르면 그 탭으로 바로 이동해요. 사이드바가 좁아도 이름이 살도록 들여쓰기는 최소로 주고, 경로가 제목인 탭은 폴더 이름만 보여줘요.
-- **탭 추가**: 정렬 줄의 **+** 를 누르면 목록이 "어느 프로젝트에 넣을까" 고르는 화면으로 바뀌고 검색칸에 커서가 들어가요. 기본은 Claude 터미널이고, option 을 누른 채로 누르면 그냥 빈 터미널이에요 (검색칸에 어느 쪽인지 적혀요). 몇 글자 치고 Enter(또는 줄 클릭)면 그 프로젝트 **맨 뒤**에 터미널 탭이 생기고 바로 그 탭으로 넘어가요. 빈 칸에서 Enter 면 맨 위 = 방금까지 쓰던 프로젝트. **+** 를 다시 누르거나 Esc 로 빠져나와요. 프로젝트 줄에 마우스를 올려도 화살표 자리가 **+** 로 바뀌어요. 그걸 누르면 그 줄 바로 아래에 *새 탭* / *새 탭 + Claude* 가 펼쳐지니, 이미 눈에 보이는 프로젝트면 검색 없이 종류만 고르면 돼요. 프로젝트 줄·고르기 줄·탭 줄을 우클릭해도 같은 두 가지가 나와요. 메뉴에 올릴 명령은 `deck.js` 위쪽 `NEW_TABS` 에서 바꿔요.
+- **탭 추가**: 정렬 줄의 **+** 를 누르면 목록이 "어느 프로젝트에 넣을까" 고르는 화면으로 바뀌고 검색칸에 커서가 들어가요. 기본은 Claude 터미널이고, 빈 터미널은 **+** 를 우클릭해서 고르면 돼요. 몇 글자 치고 Enter(또는 줄 클릭)면 그 프로젝트 **맨 뒤**에 터미널 탭이 생기고 바로 그 탭으로 넘어가요. 빈 칸에서 Enter 면 맨 위 = 방금까지 쓰던 프로젝트. **+** 를 다시 누르거나 Esc 로 빠져나와요. 프로젝트 줄에 마우스를 올려도 화살표 자리가 **+** 로 바뀌어요. 이미 눈에 보이는 프로젝트면 그걸 누르면 바로 열려요. 종류를 바꾸려면 우클릭 — **+**·프로젝트 줄·고르기 줄·탭 줄 어디서든 나와요. 메뉴에 올릴 명령은 `deck.js` 위쪽 `NEW_TABS` 에서 바꿔요.
 - **프로젝트를 누르면 탭이 접혀요**: 프로젝트 줄은 그 프로젝트로 넘어가지 않고 탭 목록만 접었다 펴요(그룹 머리글과 같은 규칙). 이동은 탭 줄로 해요. 프로젝트를 바로 열고 싶으면 우클릭 → *이 프로젝트 열기*. 정렬 줄 오른쪽 *탭 접기* / *탭 펼치기* 로 전체를 한 번에.
 - **그룹은 구역으로**: 얇은 선과 작은 이름만 두고 들여쓰기를 안 써요. 그만큼 아래 프로젝트·탭 이름이 폭을 다 써요. 접으면 그룹 안 프로젝트 수와 가장 급한 상태, 안 읽은 수를 머리글에 모아 보여줘요.
 - **프로젝트 목록**: 기본은 그룹 보기, 최근 작업순으로도 전환 가능. 상태 아이콘과 안 읽은 알림 수.
