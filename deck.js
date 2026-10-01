@@ -16,7 +16,7 @@
 // GPL-3.0-or-later, Copyright (c) Manaflow, Inc.)를 바탕으로 했다.
 
 // 버전. 기능이 바뀌면 CHANGELOG.md 와 함께 올린다 (화면에는 안 보인다 — 파일과 CHANGELOG 로만 확인)
-const VERSION = "0.4.0";
+const VERSION = "0.5.0";
 
 const TONE = {
   waiting: "#FF8A5B",

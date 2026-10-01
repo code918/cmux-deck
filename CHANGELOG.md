@@ -2,6 +2,17 @@
 
 Versions follow [Semantic Versioning](https://semver.org/). While Deck is 0.x, a minor bump (0.2 → 0.3) may change behavior or labels.
 
+## 0.5.0 — 2026-10-01
+
+### Added
+- **_세션_: every tab with Claude running right now.** A third view next to *그룹* and *최근순* lists only the tabs whose Claude session is still open, most recently active first — the same rows as *최근순*, but nothing that has exited and no age cutoff. Rows you put down with **X** still show here: this view answers "what is open", not "what is new". A session counts as open when cmux hasn't marked it ended and it carries a process id; cmux sometimes revives old sessions after a restart as empty records with no process, and those are left out.
+- **New group from a project.** Right-click a project → *새 그룹으로 묶기* makes a group named after that project with the project inside it. Drag other projects in as usual. cmux creates the group's own terminal alongside, which Deck keeps hidden as before.
+- **Rename a group.** Right-click a group header → *그룹 이름 바꾸기*: the search box turns into a name field holding the current name. Enter saves, Esc cancels. Clicking elsewhere also saves — the field treats losing focus as Enter.
+- **`scripts/end-dead-sessions.py`.** When Claude dies without saying goodbye (a crash, a kill), cmux keeps the session as running and it lingers in *세션*. The script finds sessions whose process is gone and tells cmux they ended. Run it by hand, or put it on a timer. `--dry-run` lists without changing anything.
+
+### Fixed
+- Sort-row labels (*최근순*, *탭 접기*) no longer wrap onto two lines when the row gets tight.
+
 ## 0.4.0 — 2026-09-23
 
 ### Added
