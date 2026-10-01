@@ -108,7 +108,8 @@ function cleanupOldMarks() {
 // 검색은 하나다. 프로젝트 이름과 탭 제목을 같이 보고 결과도 한 목록으로 준다 —
 // 찾는 사람은 "그게 프로젝트 이름이었는지 탭 제목이었는지"를 기억하고 있지 않다.
 // 그래서 보기(그룹/최근순)와도 상관없이 검색 중에는 같은 목록이 나온다
-// "group": 기본 사이드바와 같은 그룹 목록(기본), "recent": 그룹 무시하고 최근 작업 순
+// "group": 기본 사이드바와 같은 그룹 목록(기본), "recent": 그룹 무시하고 최근 작업 순,
+// "live": 지금 Claude 세션이 떠 있는 탭만
 const [sortMode, setSortMode] = signal("group");
 // ── 탭 추가 (어느 프로젝트에 넣을지 고르는 중) ──
 const [picking, setPicking] = signal(false);
@@ -460,6 +461,23 @@ function searchTabs(ws, q) {
   return out.sort((x, y) => y.at - x.at);
 }
 
+// 세션: 지금 Claude 가 떠 있는 탭만, 최근 활동 순.
+// cmux 는 세션이 끝나면 status 를 "ended" 로 바꾼다. 탭의 최신 세션이 끝나지 않았으면 열려 있는 것으로 본다.
+// 단, 프로세스 번호(pid)가 없는 세션은 뺀다. cmux 가 예전 기록으로 되살려 둔 껍데기라 Claude 가 실제로 안 떠 있다
+// (늘 idle 이고 transcriptPath 도 없다. 살아 있는 세션은 pid 를 꼭 들고 있다).
+// 손으로 내린 줄도 여기선 보인다 — "열려 있는 게 뭐뭐지"를 보러 온 화면이라 빠지면 안 된다
+function liveTabs(ws) {
+  const out = [];
+  for (const w of ws) {
+    for (const tab of w.tabs ?? []) {
+      const a = agentOfTab(w, tab);
+      if (!a || a.status === "ended" || a.kind !== "claude" || a.pid == null) continue;
+      out.push(tabEntry(w, tab, a.lastActivityAt ?? w.latestAt ?? 0));
+    }
+  }
+  return out.sort((x, y) => y.at - x.at);
+}
+
 function tabEntry(w, tab, at) {
   return { id: "rt:" + w.id + ":" + tab.id, kind: "recent", wsId: w.id, tabId: tab.id, at };
 }
@@ -549,6 +567,9 @@ function projectList() {
   } else if (sortMode() === "recent") {
     const rows = recentTabs(pickable);
     return rows.length ? rows : [{ id: "f:quiet", kind: "quiet" }];
+  } else if (sortMode() === "live") {
+    const rows = liveTabs(pickable);
+    return rows.length ? rows : [{ id: "f:nolive", kind: "nolive" }];
   } else {
     base = projectEntries(orderedWs(all));
   }
@@ -869,6 +890,7 @@ function header() {
     HStack({ spacing: 10 }, [
       sortTab("그룹", "group"),
       sortTab("최근순", "recent"),
+      sortTab("세션", "live"),
       Spacer({ minLength: 0 }),
       newTabButton(),
       allTabsToggle(),
@@ -943,8 +965,11 @@ function searchBox(placeholder, autofocus, submit) {
 // 보기를 바꾸면 고르기는 그만둔다. 검색어는 그대로 둔다 —
 // 검색 중에는 두 보기가 같은 결과를 주므로 치던 말을 지울 이유가 없다
 function sortTab(label, mode) {
+  // 칸이 좁아지면 글자가 두 줄로 쪼개진다. 한 줄 고정 + 제 폭 유지
   return Text(label)
     .font(11)
+    .lineLimit(1)
+    .fixed()
     .weight(() => (sortMode() === mode ? "semibold" : "regular"))
     .color(() => (!picking() && sortMode() === mode ? "primary" : "tertiary"))
     .onTap(() => {
@@ -983,6 +1008,8 @@ function allTabsToggle() {
   // 최근순과 고르는 중에는 프로젝트 줄 자체가 없어서 접을 것도 없다
   return Text(() => (sortMode() !== "group" || picking() ? "" : anyOpen() ? "탭 접기" : "탭 펼치기"))
     .font(11)
+    .lineLimit(1)
+    .fixed()
     .color("tertiary")
     .onTap(() => {
       if (sortMode() !== "group") return;
@@ -998,6 +1025,10 @@ function noHit() {
 
 function quiet() {
   return Text("최근에 움직인 탭이 없어요").font(12).color("tertiary").paddingHorizontal(14).paddingVertical(6).fixed();
+}
+
+function noLive() {
+  return Text("열려 있는 Claude 세션이 없어요").font(12).color("tertiary").paddingHorizontal(14).paddingVertical(6).fixed();
 }
 
 function noProject() {
@@ -1332,6 +1363,7 @@ sidebar(
           if (kind === "nohit") return noHit();
           if (kind === "noproj") return noProject();
           if (kind === "quiet") return quiet();
+          if (kind === "nolive") return noLive();
           return projectRow(e);
         },
       ),
