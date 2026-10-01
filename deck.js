@@ -162,6 +162,7 @@ let pickOrder = new Map();
 
 function startPick(idx) {
   cancelPending();
+  setRenaming(null);
   setPickKind(idx);
   pickOrder = new Map(
     pickableWs()
@@ -176,6 +177,24 @@ function endPick() {
   cancelPending();
   clearQuery();
   setPicking(false);
+}
+
+// ── 그룹 이름 바꾸기 ──
+// 머리글 우클릭으로 시작하면 맨 위 검색칸 자리에 이름 칸이 뜬다 (값은 그룹 id).
+// 칸의 "확정"은 포커스를 잃을 때도 터지므로, 다른 데를 눌러도 친 이름으로 바뀐다. Esc 만 취소다
+const [renaming, setRenaming] = signal(null);
+let renameText = "";
+function startRename(groupId) {
+  cancelPending();
+  if (picking()) endPick();
+  renameText = groupById(groupId)?.name ?? "";
+  setRenaming(groupId);
+}
+function commitRename() {
+  const gid = renaming();
+  const name = renameText.trim();
+  setRenaming(null);
+  if (gid && name && name !== groupById(gid)?.name) cmux("workspace.group.rename", { group_id: gid, name });
 }
 
 // ── 프로젝트별 탭 목록 접기 ──
@@ -660,6 +679,27 @@ function setGroup(w, groupId) {
   else cmux("workspace.group.remove", { workspace_id: w.id });
 }
 
+// 새 그룹으로 묶기. 사이드바의 cmux() 는 값을 전부 글자로 바꿔 보내서 프로젝트 목록(배열)을 넘길 수 없고,
+// 만든 그룹의 id 도 돌려받지 못한다. 그래서 빈 그룹을 먼저 만들고, 그룹 목록에 새로 뜨면 그때 프로젝트를 넣는다
+let groupJoin = null; // { wsId, name, known: 만들기 전 그룹 id 들, until }
+function newGroupWith(w) {
+  if (!w) return;
+  const name = w.title ?? "새 그룹";
+  groupJoin = { wsId: w.id, name, known: new Set((data.groups() ?? []).map((g) => g.id)), until: now() + HOLD };
+  cmux("workspace.group.create", { name });
+}
+computed(() => {
+  const groups = data.groups() ?? [];
+  const j = groupJoin;
+  if (!j) return;
+  if (now() > j.until) { groupJoin = null; return; }
+  const g = groups.find((x) => !j.known.has(x.id) && x.name === j.name);
+  if (!g) return;
+  groupJoin = null;
+  const w = (data.workspaces() ?? []).find((x) => x.id === j.wsId);
+  if (w) setGroup(w, g.id);
+});
+
 // ── 끌어 옮기기 (그룹 보기 전용) ──
 // index 는 끌던 줄이 놓인 자리(머리글·탭 줄까지 포함한 평면 목록 기준)다.
 // 탭 줄은 옮기는 대상이 아니므로, 위·아래로 훑어 가장 가까운 프로젝트·그룹 줄을 찾아 기준으로 삼는다.
@@ -763,6 +803,9 @@ function projectMenu(w) {
       Button(() => "그룹 이동 → " + (groupById(g.id)?.name ?? ""), () => setGroup(w(), g.id)),
     ),
     Button("그룹에서 빼기", () => setGroup(w(), null)),
+    // 이름 입력칸 없이 프로젝트 이름을 그룹 이름으로 쓴다. 다른 그룹에 있었으면 거기서 빠져 새 그룹으로 간다.
+    // 머리글 역할의 그룹 터미널은 cmux가 새로 만든다 (Deck에선 안 보인다)
+    Button("새 그룹으로 묶기", () => newGroupWith(w())),
     Divider(),
     ...COLORS.map(([label, name, hex]) => Button(label, () => setColor(w(), hex))),
     Button("⚪ 색상 지우기", () => setColor(w(), null)),
@@ -779,6 +822,8 @@ function groupMenu(groupId) {
     }
   };
   return [
+    Button("그룹 이름 바꾸기", () => startRename(groupId)),
+    Divider(),
     ...COLORS.map(([label, name, hex]) => Button("그룹 전체 → " + label, paint(hex))),
     Button("그룹 전체 → ⚪ 색상 지우기", paint(null)),
   ];
@@ -810,7 +855,8 @@ function header() {
     ),
     // 검색은 하나. Enter 는 맨 윗줄로 간다 — 프로젝트면 열고, 탭이면 그 탭으로.
     // (여기서도 바로 실행하지 않고 예약한다. 줄을 누르면 이 확정이 먼저 터지기 때문)
-    mountIf(() => !picking(), () => "search:" + fieldTick(), () =>
+    mountIf(() => !!renaming(), () => "rename:" + renaming(), () => renameBox()),
+    mountIf(() => !picking() && !renaming(), () => "search:" + fieldTick(), () =>
       searchBox("프로젝트·탭 검색", false, (q) => {
         const hit = searchRows(pickableWs(), q)[0];
         if (!hit) return;
@@ -832,6 +878,26 @@ function header() {
       .paddingBottom(4)
       .frame({ maxWidth: "infinity" }),
   ]);
+}
+
+// 그룹 이름 칸. 생김새는 검색칸과 맞추고, 돋보기 대신 연필을 단다
+function renameBox() {
+  return HStack({ spacing: 6, alignment: "center" }, [
+    Image("pencil").font(11).color("tertiary"),
+    TextField(renameText, {
+      placeholder: "그룹 이름",
+      autofocus: true,
+      onEdit: (t) => (renameText = t ?? ""),
+      onSubmit: () => commitRename(),
+      onCancel: () => setRenaming(null),
+    }).font(12),
+  ])
+    .paddingHorizontal(10)
+    .paddingVertical(7)
+    .frame({ maxWidth: "infinity", alignment: "leading" })
+    .background("#7f7f7f1f")
+    .cornerRadius(7)
+    .paddingHorizontal(8);
 }
 
 // submit 에는 다듬은 검색어가 들어온다 (빈 문자열이면 아무것도 안 한다).
