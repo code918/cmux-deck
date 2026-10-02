@@ -51,7 +51,7 @@ Edit the constants at the top of `deck.js`. cmux hot-reloads the file on save.
 | `STALE` | `3600` | Seconds a "waiting for input" signal counts as urgent. Past this the tab goes quiet — see below |
 | `RECENT` | `2592000` (30일) | Seconds a tab stays listed in *최근순*. Search is not affected |
 | `PLUS_TAB` | `1` | Which `NEW_TABS` entry a **+** click opens; the rest are in its right-click menu |
-| `NEW_TABS` | `null` / `cl` | What the new-tab menu offers: a label and the command typed into the new terminal (`null` for a plain shell). It is typed into your own interactive shell, so aliases and functions work — `cl` is the author's alias for `claude`. Change it to whatever starts yours |
+| `NEW_TABS` | `null` / `cl` / `cdx` | What the new-tab menu offers: a label and the command typed into the new terminal (`null` for a plain shell). It is typed into your own interactive shell, so aliases and functions work. `cl` and `cdx` are the author's aliases for `claude` and `codex`; if your shell has no such alias, the tab just runs plain `claude` / `codex`. Change it to whatever starts yours |
 | `TONE` | | Colors for each state |
 
 ## Versions and updating

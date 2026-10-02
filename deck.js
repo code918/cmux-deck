@@ -35,12 +35,16 @@ const RECENT = 30 * 24 * 60 * 60;
 
 // 새 탭 종류. [메뉴에 보일 이름, 터미널이 뜨자마자 칠 명령(없으면 빈 셸)]
 // 쓰는 도구가 다르면 여기에 한 줄 더하면 된다 (예: ["새 탭 + 옆집 도구", "tool"])
+// 별칭 alias 가 있으면 그걸로, 없으면 cmd 를 그대로 띄우는 한 줄.
+// 별칭을 안 만들어 둔 사람도 버튼을 누르면 일단 열리게 한다 (bash·zsh 문법)
+const orPlain = (alias, cmd) => `if type ${alias} >/dev/null 2>&1; then ${alias}; else ${cmd}; fi`;
 const NEW_TABS = [
   ["새 탭", null],
   // 명령은 그냥 셸에 쳐 넣는 것이라, 별칭이든 함수든 그 셸이 아는 이름이면 된다
-  ["새 탭 + Claude", "cl"],
-  // cdx = codex --dangerously-bypass-approvals-and-sandbox (~/.bash_aliases)
-  ["새 탭 + Codex", "cdx"],
+  // cl  = claude --dangerously-skip-permissions --remote-control
+  ["새 탭 + Claude", orPlain("cl", "claude")],
+  // cdx = codex --dangerously-bypass-approvals-and-sandbox
+  ["새 탭 + Codex", orPlain("cdx", "codex")],
 ];
 // "+" 를 눌렀을 때 만들 탭 (위 목록의 순번). 거의 언제나 에이전트를 띄우므로 그게 기본이고,
 // 빈 터미널은 "+" 우클릭 메뉴에서 고른다
