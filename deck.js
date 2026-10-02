@@ -39,10 +39,14 @@ const NEW_TABS = [
   ["새 탭", null],
   // 명령은 그냥 셸에 쳐 넣는 것이라, 별칭이든 함수든 그 셸이 아는 이름이면 된다
   ["새 탭 + Claude", "cl"],
+  // cdx = codex --dangerously-bypass-approvals-and-sandbox (~/.bash_aliases)
+  ["새 탭 + Codex", "cdx"],
 ];
 // "+" 를 눌렀을 때 만들 탭 (위 목록의 순번). 거의 언제나 에이전트를 띄우므로 그게 기본이고,
 // 빈 터미널은 "+" 우클릭 메뉴에서 고른다
 const PLUS_TAB = 1;
+// 머리글 "</>" 버튼이 만들 탭. 동작은 "+" 와 같고 종류만 Codex 다
+const CODEX_TAB = 2;
 
 const now = () => data.clock()?.epoch ?? 0;
 
@@ -902,7 +906,8 @@ function header() {
       sortTab("그룹", "group"),
       sortTab("최근순", "recent"),
       Spacer({ minLength: 0 }),
-      newTabButton(),
+      newTabButton(CODEX_TAB, "chevron.left.forwardslash.chevron.right", 8),
+      newTabButton(PLUS_TAB, "plus", 10),
       allTabsToggle(),
     ])
       .paddingHorizontal(14)
@@ -993,18 +998,20 @@ function sortTab(label, mode) {
 
 // 새 탭. 누르면 목록이 "어느 프로젝트에 넣을까" 고르는 화면으로 바뀌고, 검색칸에 커서가 간다.
 // 한 번 더 누르면 그만둔다.
-// 기본은 PLUS_TAB (Claude 터미널). 다른 종류는 우클릭으로 고른다.
-// 우클릭은 프로젝트 고르기도 건너뛰고 지금 프로젝트에 바로 넣는다
-function newTabButton() {
-  return Image("plus")
-    .font(10)
+// "+" 는 PLUS_TAB (Claude 터미널), "</>" 는 CODEX_TAB. 다른 종류는 우클릭으로 고른다.
+// 우클릭은 프로젝트 고르기도 건너뛰고 지금 프로젝트에 바로 넣는다.
+// 다른 버튼으로 고르는 중에 누르면 그만두지 않고 종류만 바꿔서 다시 고른다
+function newTabButton(idx, icon, size) {
+  const mine = () => picking() && pickKind() === idx;
+  return Image(icon)
+    .font(size)
     .weight("semibold")
-    .color(() => (picking() ? "primary" : "tertiary"))
+    .color(() => (mine() ? "primary" : "tertiary"))
     .frame({ width: 15, height: 15 })
     .cornerRadius(8)
-    .background(() => (picking() ? "#7f7f7f4a" : null))
+    .background(() => (mine() ? "#7f7f7f4a" : null))
     .hoverBackground("#7f7f7f4a")
-    .onTap(() => (picking() ? endPick() : startPick(PLUS_TAB)))
+    .onTap(() => (mine() ? endPick() : startPick(idx)))
     .contextMenu(newTabMenu(() => currentWs()?.id));
 }
 
