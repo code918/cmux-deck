@@ -108,9 +108,13 @@ function cleanupOldMarks() {
 // 검색은 하나다. 프로젝트 이름과 탭 제목을 같이 보고 결과도 한 목록으로 준다 —
 // 찾는 사람은 "그게 프로젝트 이름이었는지 탭 제목이었는지"를 기억하고 있지 않다.
 // 그래서 보기(그룹/최근순)와도 상관없이 검색 중에는 같은 목록이 나온다
-// "group": 기본 사이드바와 같은 그룹 목록(기본), "recent": 그룹 무시하고 최근 작업 순,
-// "live": 지금 Claude 세션이 떠 있는 탭만
+// "group": 기본 사이드바와 같은 그룹 목록(기본), "recent": 그룹 무시하고 최근 작업 순
 const [sortMode, setSortMode] = signal("group");
+// 최근순 거르기: 0 = 전체(최근에 움직인 탭), 그 밖은 그 에이전트가 지금 떠 있는 탭만 (아래 liveTabs).
+// [버튼 글자, cmux 가 주는 agents[].kind]
+const AGENT_FILTERS = [["전체", null], ["Claude", "claude"], ["Codex", "codex"]];
+const [agentFilter, setAgentFilter] = signal(0);
+const filterKind = () => AGENT_FILTERS[agentFilter()]?.[1] ?? null;
 // ── 탭 추가 (어느 프로젝트에 넣을지 고르는 중) ──
 const [picking, setPicking] = signal(false);
 // Enter 로 하는 일은 한 박자 미뤄 둔다.
@@ -461,17 +465,17 @@ function searchTabs(ws, q) {
   return out.sort((x, y) => y.at - x.at);
 }
 
-// 세션: 지금 Claude 가 떠 있는 탭만, 최근 활동 순.
+// 지금 kind 에이전트(claude·codex)가 떠 있는 탭만, 최근 활동 순.
 // cmux 는 세션이 끝나면 status 를 "ended" 로 바꾼다. 탭의 최신 세션이 끝나지 않았으면 열려 있는 것으로 본다.
 // 단, 프로세스 번호(pid)가 없는 세션은 뺀다. cmux 가 예전 기록으로 되살려 둔 껍데기라 Claude 가 실제로 안 떠 있다
 // (늘 idle 이고 transcriptPath 도 없다. 살아 있는 세션은 pid 를 꼭 들고 있다).
 // 손으로 내린 줄도 여기선 보인다 — "열려 있는 게 뭐뭐지"를 보러 온 화면이라 빠지면 안 된다
-function liveTabs(ws) {
+function liveTabs(ws, kind) {
   const out = [];
   for (const w of ws) {
     for (const tab of w.tabs ?? []) {
       const a = agentOfTab(w, tab);
-      if (!a || a.status === "ended" || a.kind !== "claude" || a.pid == null) continue;
+      if (!a || a.status === "ended" || a.kind !== kind || a.pid == null) continue;
       out.push(tabEntry(w, tab, a.lastActivityAt ?? w.latestAt ?? 0));
     }
   }
@@ -564,12 +568,12 @@ function projectList() {
   if (q) {
     base = searchRows(pickable, q);
     if (!base.length) return [{ id: "f:nohit", kind: "nohit" }];
+  } else if (sortMode() === "recent" && filterKind()) {
+    const rows = liveTabs(pickable, filterKind());
+    return rows.length ? rows : [{ id: "f:nolive", kind: "nolive" }];
   } else if (sortMode() === "recent") {
     const rows = recentTabs(pickable);
     return rows.length ? rows : [{ id: "f:quiet", kind: "quiet" }];
-  } else if (sortMode() === "live") {
-    const rows = liveTabs(pickable);
-    return rows.length ? rows : [{ id: "f:nolive", kind: "nolive" }];
   } else {
     base = projectEntries(orderedWs(all));
   }
@@ -890,7 +894,6 @@ function header() {
     HStack({ spacing: 10 }, [
       sortTab("그룹", "group"),
       sortTab("최근순", "recent"),
-      sortTab("세션", "live"),
       Spacer({ minLength: 0 }),
       newTabButton(),
       allTabsToggle(),
@@ -899,6 +902,8 @@ function header() {
       .paddingTop(8)
       .paddingBottom(4)
       .frame({ maxWidth: "infinity" }),
+    // 최근순일 때만 정렬 줄 아래에 거르기 바를 깐다 (그룹 보기에선 자리도 안 차지하게 아예 뺀다)
+    mountIf(filterShown, () => "filter", () => agentFilterBar()),
   ]);
 }
 
@@ -1019,6 +1024,38 @@ function allTabsToggle() {
     });
 }
 
+// 최근순 전용 거르기 바: 전체 | Claude | Codex. 검색칸과 같은 폭의 세 칸짜리 선택 막대다.
+// 처음엔 정렬 줄 오른쪽 버튼 + 펼침으로 했는데, 그 줄이 좁아서 글자가 "…" 로 잘리고 옆 글자까지 눌렀다.
+// 칸마다 남는 폭을 똑같이 나눠 가져서 글자 폭을 잴 일이 없다
+const filterShown = () => sortMode() === "recent" && !picking();
+function agentFilterBar() {
+  return HStack({ spacing: 2 }, AGENT_FILTERS.map(([label], i) =>
+    HStack({ spacing: 0 }, [
+      Spacer({ minLength: 0 }),
+      Text(label)
+        .font(11)
+        .lineLimit(1)
+        .weight(() => (agentFilter() === i ? "semibold" : "regular"))
+        .color(() => (agentFilter() === i ? "primary" : "secondary")),
+      Spacer({ minLength: 0 }),
+    ])
+      .paddingVertical(3)
+      .frame({ maxWidth: "infinity" })
+      .cornerRadius(5)
+      .background(() => (agentFilter() === i ? "#7f7f7f4a" : null))
+      .hoverBackground("#7f7f7f33")
+      .onTap(() => {
+        cancelPending();
+        setAgentFilter(i);
+      }),
+  ))
+    .padding(2)
+    .background("#7f7f7f1f")
+    .cornerRadius(7)
+    .paddingHorizontal(8)
+    .paddingBottom(4);
+}
+
 function noHit() {
   return Text("맞는 프로젝트·탭이 없어요").font(12).color("tertiary").paddingHorizontal(14).paddingVertical(6).fixed();
 }
@@ -1028,7 +1065,7 @@ function quiet() {
 }
 
 function noLive() {
-  return Text("열려 있는 Claude 세션이 없어요").font(12).color("tertiary").paddingHorizontal(14).paddingVertical(6).fixed();
+  return Text(() => "열려 있는 " + AGENT_FILTERS[agentFilter()][0] + " 세션이 없어요").font(12).color("tertiary").paddingHorizontal(14).paddingVertical(6).fixed();
 }
 
 function noProject() {
