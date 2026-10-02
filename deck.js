@@ -199,22 +199,33 @@ function endPick() {
   setPicking(false);
 }
 
-// ── 그룹 이름 바꾸기 ──
-// 머리글 우클릭으로 시작하면 맨 위 검색칸 자리에 이름 칸이 뜬다 (값은 그룹 id).
+// ── 그룹·프로젝트 이름 바꾸기 ──
+// 우클릭으로 시작하면 맨 위 검색칸 자리에 이름 칸이 뜬다 (값은 "g:그룹 id" 또는 "w:프로젝트 id").
 // 칸의 "확정"은 포커스를 잃을 때도 터지므로, 다른 데를 눌러도 친 이름으로 바뀐다. Esc 만 취소다
 const [renaming, setRenaming] = signal(null);
 let renameText = "";
-function startRename(groupId) {
+const renamingWs = () => renaming()?.startsWith("w:") ?? false;
+function beginRename(key, text) {
   cancelPending();
   if (picking()) endPick();
-  renameText = groupById(groupId)?.name ?? "";
-  setRenaming(groupId);
+  renameText = text ?? "";
+  setRenaming(key);
 }
+const startRename = (groupId) => beginRename("g:" + groupId, groupById(groupId)?.name);
+const startRenameWs = (w) => w && beginRename("w:" + w.id, w.title);
 function commitRename() {
-  const gid = renaming();
+  const key = renaming();
   const name = renameText.trim();
   setRenaming(null);
-  if (gid && name && name !== groupById(gid)?.name) cmux("workspace.group.rename", { group_id: gid, name });
+  if (!key) return;
+  const id = key.slice(2);
+  if (key.startsWith("g:")) {
+    if (name && name !== groupById(id)?.name) cmux("workspace.group.rename", { group_id: id, name });
+    return;
+  }
+  // 프로젝트는 이름을 비우면 붙였던 이름을 떼고 cmux 가 정하는 기본 이름(폴더명 등)으로 돌린다
+  if (!name) cmux("workspace.action", { workspace_id: id, action: "clear_name" });
+  else if (name !== wsById(id)?.title) cmux("workspace.action", { workspace_id: id, action: "rename", title: name });
 }
 
 // ── 프로젝트별 탭 목록 접기 ──
@@ -849,8 +860,33 @@ function projectMenu(w) {
     Divider(),
     ...COLORS.map(([label, name, hex]) => Button(label, () => setColor(w(), hex))),
     Button("⚪ 색상 지우기", () => setColor(w(), null)),
+    Divider(),
+    Button("이름 바꾸기", () => startRenameWs(w())),
+    // 삭제 = 프로젝트를 닫는다. 안의 탭과 떠 있는 Claude·Codex 도 같이 꺼지고 되돌릴 수 없다.
+    // cmux 가 따로 묻지 않고 바로 닫으므로 두 번 눌러야 지워진다 (아래 deleteArmed 참고).
+    // 하위 메뉴(Menu)로 한 단계 숨기려 했는데 이 런타임의 우클릭 메뉴에선 하위 메뉴가 아예 안 그려졌다
+    Button(
+      () => (deleteArmed(w()?.id) ? "⚠️ 정말 삭제 — 탭 " + (w()?.tabs?.length ?? 0) + "개도 같이 닫혀요" : "프로젝트 삭제…"),
+      () => {
+        const x = w();
+        if (!x) return;
+        if (deleteArmed(x.id)) {
+          setArmedDelete(null);
+          cmux("workspace.close", { workspace_id: x.id });
+        } else setArmedDelete({ wsId: x.id, until: now() + DELETE_ARM });
+      },
+    ).destructive(),
   ];
 }
+
+// 프로젝트 삭제 확인: 첫 번째 누름은 "장전"만 하고, 그 시간 안에 같은 프로젝트에서 한 번 더 눌러야 지운다.
+// 메뉴 글자는 열 때마다 다시 읽히므로, 다시 우클릭하면 "정말 삭제" 로 바뀌어 보인다
+const DELETE_ARM = 10;
+const [armedDelete, setArmedDelete] = signal(null);
+const deleteArmed = (wsId) => {
+  const a = armedDelete();
+  return !!a && a.wsId === wsId && now() < a.until;
+};
 
 // 그룹 머리글 우클릭 메뉴: 그룹 색 지정 = 그 그룹 프로젝트를 전부 같은 색으로 칠한다
 // (대표 프로젝트는 머리글 역할이라 원래 색을 안 칠해 쓰므로 건드리지 않는다)
@@ -923,12 +959,12 @@ function header() {
   ]);
 }
 
-// 그룹 이름 칸. 생김새는 검색칸과 맞추고, 돋보기 대신 연필을 단다
+// 그룹·프로젝트 이름 칸. 생김새는 검색칸과 맞추고, 돋보기 대신 연필을 단다
 function renameBox() {
   return HStack({ spacing: 6, alignment: "center" }, [
     Image("pencil").font(11).color("tertiary"),
     TextField(renameText, {
-      placeholder: "그룹 이름",
+      placeholder: renamingWs() ? "프로젝트 이름 (비우면 기본 이름)" : "그룹 이름",
       autofocus: true,
       onEdit: (t) => (renameText = t ?? ""),
       onSubmit: () => commitRename(),
