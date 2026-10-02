@@ -64,11 +64,18 @@ function index() {
     for (const a of w.agents ?? []) {
       // 세션은 탭의 id(panelId) 나 surfaceId 로 달려 있다. 둘 다 열쇠로 넣어둔다.
       // 한 탭에 세션이 여러 개 쌓여 있을 수 있는데 cmux 는 최신 것을 앞에 준다.
-      // 그래서 먼저 온 것만 담는다 — 덮어쓰면 제일 오래된 세션이 남아서 "8일 전" 같은 시각이 뜬다
+      // 그래서 먼저 온 것만 담는다 — 덮어쓰면 제일 오래된 세션이 남아서 "8일 전" 같은 시각이 뜬다.
+      // 단, 먼저 온 게 끝난 세션이고 뒤에 안 끝난 세션이 있으면 그걸로 바꾼다.
+      // 떠 있는 Claude 가 잠깐 띄운 보조 세션(같은 탭에서 돌고 바로 끝남)이 더 최근으로 잡혀서,
+      // 실제로 떠 있는 Claude 를 가리는 일이 있었다 (세션 보기에서 열린 탭이 빠짐)
       const k1 = w.id + "|" + a.panelId;
       const k2 = w.id + "|s|" + a.surfaceId;
-      if (a.panelId != null && !agents.has(k1)) agents.set(k1, a);
-      if (a.surfaceId != null && !agents.has(k2)) agents.set(k2, a);
+      const take = (k) => {
+        const cur = agents.get(k);
+        if (!cur || (cur.status === "ended" && a.status !== "ended")) agents.set(k, a);
+      };
+      if (a.panelId != null) take(k1);
+      if (a.surfaceId != null) take(k2);
     }
     for (const t of w.tabs ?? []) {
       tabs.set(w.id + "|" + t.id, t);
