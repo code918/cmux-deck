@@ -49,7 +49,6 @@ const NEW_TABS = [
 // "+" 를 눌렀을 때 만들 탭 (위 목록의 순번). 거의 언제나 에이전트를 띄우므로 그게 기본이고,
 // 빈 터미널은 "+" 우클릭 메뉴에서 고른다
 const PLUS_TAB = 1;
-// 머리글 "</>" 버튼이 만들 탭. 동작은 "+" 와 같고 종류만 Codex 다
 const CODEX_TAB = 2;
 
 const now = () => data.clock()?.epoch ?? 0;
@@ -130,6 +129,8 @@ const [sortMode, setSortMode] = signal("group");
 const AGENT_FILTERS = [["전체", null], ["Claude", "claude"], ["Codex", "codex"]];
 const [agentFilter, setAgentFilter] = signal(0);
 const filterKind = () => AGENT_FILTERS[agentFilter()]?.[1] ?? null;
+// "+" 가 만들 탭 종류. 최근순에서 Codex 를 거르고 있으면 Codex, 그 밖(전체·Claude·그룹 보기)은 Claude
+const plusTab = () => (sortMode() === "recent" && filterKind() === "codex" ? CODEX_TAB : PLUS_TAB);
 // ── 탭 추가 (어느 프로젝트에 넣을지 고르는 중) ──
 const [picking, setPicking] = signal(false);
 // Enter 로 하는 일은 한 박자 미뤄 둔다.
@@ -171,8 +172,9 @@ function clearQuery() {
 }
 
 // 고르기를 시작한 "+" 가 무슨 탭을 만들 것인지 (NEW_TABS 순번).
-// 종류를 먼저 고르고 프로젝트를 고르는 순서다 — 머리글엔 종류마다 버튼이 하나씩 있다
 const [pickKind, setPickKind] = signal(0);
+// 고르는 중에는 검색칸 위 "Claude | Codex" 줄로 언제든 바꿀 수 있다. 처음 값은 plusTab()
+const PICK_KINDS = [["Claude", PLUS_TAB], ["Codex", CODEX_TAB]];
 const pickItem = () => NEW_TABS[pickKind()] ?? NEW_TABS[0];
 
 // 고르기를 연 순간의 "최근에 만진 순서"를 붙잡아 둔다.
@@ -921,9 +923,12 @@ function mountIf(on, key, build) {
 function header() {
   return VStack({ spacing: 0 }, [
     Rectangle().fill("#00000000").frame({ height: 8 }),
-    // 고를 탭 종류가 바뀌면 칸도 새로 뜬다 — 무엇을 만들 참인지는 여기 적히는 게 전부다
+    // 종류를 먼저 고르고 프로젝트를 고르는 순서라, 종류 줄이 검색칸 위에 온다
+    mountIf(() => picking(), () => "kind", () => pickKindBar()),
+    // 고를 탭 종류가 바뀌면 칸도 새로 뜬다 — 안내 글자는 뜰 때만 정해지기 때문이다.
+    // 새로 떠도 칸은 들고 있던 검색어로 채워지므로 친 글자는 안 날아간다
     mountIf(() => picking(), () => "pick:" + pickKind() + ":" + fieldTick(), () =>
-      searchBox("어느 프로젝트에 " + pickItem()[0] + "?", true, (q) => {
+      searchBox("어느 프로젝트에 " + pickItem()[0], true, (q) => {
         const hit = pickTargets(pickableWs(), q)[0];
         // 바로 열지 않고 예약만 한다 (위 pending 설명 참고)
         if (hit) pending = () => addTab(hit.wsId, pickItem()[1]);
@@ -946,8 +951,7 @@ function header() {
       sortTab("그룹", "group"),
       sortTab("최근순", "recent"),
       Spacer({ minLength: 0 }),
-      newTabButton(CODEX_TAB, "chevron.left.forwardslash.chevron.right", 8),
-      newTabButton(PLUS_TAB, "plus", 10),
+      newTabButton(),
       allTabsToggle(),
     ])
       .paddingHorizontal(14)
@@ -1038,20 +1042,19 @@ function sortTab(label, mode) {
 
 // 새 탭. 누르면 목록이 "어느 프로젝트에 넣을까" 고르는 화면으로 바뀌고, 검색칸에 커서가 간다.
 // 한 번 더 누르면 그만둔다.
-// "+" 는 PLUS_TAB (Claude 터미널), "</>" 는 CODEX_TAB. 다른 종류는 우클릭으로 고른다.
-// 우클릭은 프로젝트 고르기도 건너뛰고 지금 프로젝트에 바로 넣는다.
-// 다른 버튼으로 고르는 중에 누르면 그만두지 않고 종류만 바꿔서 다시 고른다
-function newTabButton(idx, icon, size) {
-  const mine = () => picking() && pickKind() === idx;
-  return Image(icon)
-    .font(size)
+// 처음 종류는 plusTab() (최근순에서 Codex 를 거르고 있으면 Codex, 아니면 Claude). 고르는 화면에서 바꿀 수 있다.
+// 빈 터미널은 우클릭으로 고른다.
+// 우클릭은 프로젝트 고르기도 건너뛰고 지금 프로젝트에 바로 넣는다
+function newTabButton() {
+  return Image("plus")
+    .font(10)
     .weight("semibold")
-    .color(() => (mine() ? "primary" : "tertiary"))
+    .color(() => (picking() ? "primary" : "tertiary"))
     .frame({ width: 15, height: 15 })
     .cornerRadius(8)
-    .background(() => (mine() ? "#7f7f7f4a" : null))
+    .background(() => (picking() ? "#7f7f7f4a" : null))
     .hoverBackground("#7f7f7f4a")
-    .onTap(() => (mine() ? endPick() : startPick(idx)))
+    .onTap(() => (picking() ? endPick() : startPick(plusTab())))
     .contextMenu(newTabMenu(() => currentWs()?.id));
 }
 
@@ -1108,6 +1111,41 @@ function agentFilterBar() {
     .cornerRadius(7)
     .paddingHorizontal(8)
     .paddingBottom(4);
+}
+
+// 고르는 중 검색칸 아래: 만들 탭 종류. 생김새는 최근순 거르기 줄과 같다
+// 검색칸과의 여백은 패딩이 안 먹어서 빈 칸을 하나 끼운다 (머리글 맨 위와 같은 방법)
+function pickKindBar() {
+  return VStack({ spacing: 0 }, [
+    pickKindRow(),
+    Rectangle().fill("#00000000").frame({ height: 8 }),
+  ]);
+}
+function pickKindRow() {
+  return HStack({ spacing: 2 }, PICK_KINDS.map(([label, idx]) =>
+    HStack({ spacing: 0 }, [
+      Spacer({ minLength: 0 }),
+      Text(label)
+        .font(11)
+        .lineLimit(1)
+        .weight(() => (pickKind() === idx ? "semibold" : "regular"))
+        .color(() => (pickKind() === idx ? "primary" : "secondary")),
+      Spacer({ minLength: 0 }),
+    ])
+      .paddingVertical(3)
+      .frame({ maxWidth: "infinity" })
+      .cornerRadius(5)
+      .background(() => (pickKind() === idx ? "#7f7f7f4a" : null))
+      .hoverBackground("#7f7f7f33")
+      .onTap(() => {
+        cancelPending();
+        setPickKind(idx);
+      }),
+  ))
+    .padding(2)
+    .background("#7f7f7f1f")
+    .cornerRadius(7)
+    .paddingHorizontal(8);
 }
 
 function noHit() {
@@ -1358,7 +1396,7 @@ function projectRow(e) {
         .frame({ width: 10, height: 12 })
         .opacity(() => (tabCount() > 0 ? 0.6 : 0))
         .hideOnHover(),
-      // 누르면 이 프로젝트 맨 뒤에 기본 탭(PLUS_TAB)을 바로 연다.
+      // 누르면 이 프로젝트 맨 뒤에 기본 탭(plusTab)을 바로 연다.
       // 다른 종류로 열려면 우클릭 — 왼쪽 클릭으로 메뉴를 띄우는 방법이 이 런타임엔 없다
       Image("plus")
         .font(10)
@@ -1368,7 +1406,7 @@ function projectRow(e) {
         .cornerRadius(8)
         .hoverBackground("#7f7f7f4a")
         .showOnHover()
-        .onTap(() => addTab(e().wsId, NEW_TABS[PLUS_TAB][1]))
+        .onTap(() => addTab(e().wsId, NEW_TABS[plusTab()][1]))
         .contextMenu(newTabMenu(() => e().wsId)),
     ]),
   ])
